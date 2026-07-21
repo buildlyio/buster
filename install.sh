@@ -97,23 +97,26 @@ fi
 # 8. Start + report ----------------------------------------------------------
 "$BIN_DIR/buster" start >/dev/null 2>&1 || true
 PORT="$("$VENV/bin/python" -c 'from buster.config import load_config; print(load_config().server.port)' 2>/dev/null || echo 8765)"
-HOST="$("$VENV/bin/python" -c 'from buster.config import load_config; print(load_config().server.hostname)' 2>/dev/null || echo buster.local)"
+NAME="$("$VENV/bin/python" -c 'from buster.discovery import naming; print(naming.primary_name())' 2>/dev/null || echo buster.local)"
+NEEDS_DNS="$("$VENV/bin/python" -c 'from buster.discovery import naming; print("1" if naming.needs_manual_dns() else "0")' 2>/dev/null || echo 0)"
 
 cat <<EOF
 
 $(ok "Buster is running.")
 
 CLI:       buster
-Web:       http://$HOST:$PORT
+Web:       http://$NAME:$PORT
 Fallback:  http://localhost:$PORT
 Status:    buster status
 
 Inference policy: Local first
 
 Recovery:  buster doctor   ·   buster logs   ·   buster restart
-
-Note: buster.local is advertised over mDNS. If your network uses a local DNS
-server (e.g. Pi-hole) with a custom suffix like "buster.home", add an A record
-there pointing that name to this machine, then set server.hostname in your
-Buster config. The localhost URL always works regardless.
 EOF
+
+if [ "$NEEDS_DNS" = "1" ]; then
+  echo
+  echo "Your domain isn't .local, so mDNS can't publish it. Add these records to"
+  echo "your local DNS server (e.g. Pi-hole), then re-run 'buster doctor':"
+  "$VENV/bin/python" -c 'from buster.discovery import naming; [print("  A  %s -> %s" % (n, ip)) for n, ip in naming.dns_records()]' 2>/dev/null || true
+fi

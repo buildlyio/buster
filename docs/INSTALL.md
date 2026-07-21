@@ -47,6 +47,23 @@ buster doctor          # check Buster's own health
 buster open            # open the web interface
 ```
 
+## Hostnames on a shared LAN
+
+Each Buster node advertises a unique `<node>.buster.local` name over mDNS (plus a
+bare `buster.local` alias), so multiple Busters coexist without colliding.
+`localhost` always works too.
+
+If your network uses a local DNS server (e.g. Pi-hole) with a `.home` suffix:
+
+```toml
+[server]
+domain = "buster.home"
+```
+
+Then run `buster doctor` — it prints the exact A records (e.g.
+`alderaan.buster.home → <ip>` and `buster.home → <ip>`) to add in Pi-hole. Buster
+never edits your DNS. See the README's "Hostnames & local DNS" section for detail.
+
 ## Local inference
 
 Buster prefers a model on **this** device. Install [Ollama](https://ollama.com)

@@ -42,6 +42,14 @@ def _port_open(host: str, port: int, timeout: float = 1.0) -> bool:
         return False
 
 
+def _resolves(hostname: str) -> bool:
+    try:
+        socket.gethostbyname(hostname)
+        return True
+    except OSError:
+        return False
+
+
 async def run_doctor() -> DoctorReport:
     config = load_config()
     paths = get_paths()
@@ -152,6 +160,41 @@ async def run_doctor() -> DoctorReport:
     except Exception:  # noqa: BLE001
         checks.append(
             CheckResult(check="dns", status=CheckStatus.WARNING, summary="localhost did not resolve")
+        )
+
+    # LAN naming — for non-.local domains, mDNS can't publish the name, so show
+    # the exact A records to add to the local DNS server (Pi-hole/router).
+    from buster.discovery import naming
+
+    if naming.needs_manual_dns():
+        records = naming.dns_records()
+        resolvable = _resolves(naming.primary_name())
+        checks.append(
+            CheckResult(
+                check="lan_hostname",
+                status=CheckStatus.OK if resolvable else CheckStatus.WARNING,
+                summary=(
+                    f"{naming.primary_name()} resolves"
+                    if resolvable
+                    else f"{naming.primary_name()} not resolvable — add DNS records"
+                ),
+                evidence={"names": naming.all_names(), "records": records},
+                recommendations=(
+                    []
+                    if resolvable
+                    else [f"Add A record: {name} → {ip}" for name, ip in records]
+                    + ["(add these in Pi-hole / your local DNS server)"]
+                ),
+            )
+        )
+    else:
+        checks.append(
+            CheckResult(
+                check="lan_hostname",
+                status=CheckStatus.OK,
+                summary=f"Advertising {', '.join(naming.all_names())} via mDNS",
+                evidence={"names": naming.all_names()},
+            )
         )
 
     # Tool-pack load

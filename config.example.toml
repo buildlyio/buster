@@ -7,6 +7,11 @@ host = "127.0.0.1"      # localhost only by default
 port = 8765
 lan_access = false      # enabling LAN access requires a token (set during onboarding)
 lan_token = ""
+# LAN naming (multiple Busters coexist): each node = <node_name>.<domain>,
+# e.g. "alderaan.buster.home", plus a bare "<domain>" alias.
+domain = "buster.local"   # use "buster.home" if your local DNS (Pi-hole) serves .home
+node_name = ""            # blank = derive from the machine hostname
+advertise_alias = true    # also answer to the bare <domain> ("whichever node")
 
 [inference]
 policy = "local_first_ask_external"   # local_only | local_first_ask_external | local_first_auto_lan | no_restriction

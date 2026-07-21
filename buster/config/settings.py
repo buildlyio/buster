@@ -35,11 +35,21 @@ class ServerConfig(BaseModel):
     lan_access: bool = False
     # Token required when lan_access is enabled. Generated at first LAN enable.
     lan_token: str = ""
-    # Friendly hostname shown in banners/onboarding. mDNS publishes the
-    # ".local" name automatically; other suffixes (e.g. "buster.home" via a
-    # Pi-hole / local DNS server) must be configured in that DNS server — see
-    # docs/INSTALL.md. This value only controls what Buster advertises/prints.
-    hostname: str = "buster.local"
+
+    # --- LAN naming --------------------------------------------------------
+    # Multiple Busters can share a LAN, so each node gets a UNIQUE name:
+    #   <node_name>.<domain>   e.g. "alderaan.buster.home"
+    # plus a convenience bare alias "<domain>" (buster.local / buster.home)
+    # for the single-node case.
+    #
+    # `domain`: the suffix. mDNS can auto-publish ".local"; other suffixes
+    # (e.g. "buster.home" via Pi-hole / local DNS) must be added to that DNS
+    # server — `buster doctor` prints the exact records. See docs/INSTALL.md.
+    domain: str = "buster.local"
+    # `node_name`: this node's label. Blank = derive from the machine hostname.
+    node_name: str = ""
+    # Also advertise the bare `domain` as a "whichever answers" alias.
+    advertise_alias: bool = True
 
 
 class InferenceConfig(BaseModel):

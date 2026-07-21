@@ -283,22 +283,37 @@ inference location and whether data left the machine/network on every response.
 
 ## Hostnames & local DNS (Pi-hole, etc.)
 
-Buster advertises **`buster.local`** over mDNS/Bonjour automatically, and the
-`http://localhost:<port>` URL always works.
+Multiple Busters can share one LAN, so **each node gets a unique name** —
+`<node>.buster.local` (e.g. `alderaan.buster.local`) — plus a bare
+`buster.local` **alias** for the single-node "whichever answers" case. The
+`http://localhost:<port>` URL always works regardless.
+
+`<node>` derives from the machine's hostname by default; override with
+`server.node_name`.
+
+### Custom domain via local DNS (e.g. `buster.home`)
 
 mDNS can only publish `.local` names. If your network uses a **local DNS server**
-(e.g. Pi-hole or your router) with a custom suffix like **`buster.home`**:
+(Pi-hole or your router) with a suffix like **`buster.home`**, set:
 
-1. Add an **A record** in that DNS server: `buster.home → <this machine's IP>`.
-2. Set the friendly name in your Buster config so banners/onboarding match:
+```toml
+[server]
+domain = "buster.home"   # per-host names become <node>.buster.home
+# node_name = ""         # blank = derived from hostname
+# advertise_alias = true # also answer to the bare buster.home
+```
 
-   ```toml
-   [server]
-   hostname = "buster.home"
-   ```
+Then add the A records that `buster doctor` prints for you — for example:
 
-Buster will still advertise `buster.local` over mDNS for zero-config discovery by
-other Buster nodes.
+```
+A  alderaan.buster.home → 192.168.1.50
+A  buster.home           → 192.168.1.50
+```
+
+Run `buster doctor` on each node; it shows the exact records (name → this
+machine's IP) to paste into Pi-hole. Buster never edits your DNS itself, and it
+still advertises the equivalent `<node>.buster.local` names over mDNS for
+zero-config discovery by other Buster nodes.
 
 ---
 

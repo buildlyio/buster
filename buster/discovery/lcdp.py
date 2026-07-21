@@ -45,15 +45,18 @@ class BusterNodeManifest(LCDPManifest):
 
 
 def build_self_manifest() -> BusterNodeManifest:
+    from buster.discovery import naming
+
     config = load_config()
     host = socket.gethostname()
+    lan_name = naming.primary_name()  # e.g. alderaan.buster.home
     base = config.base_url
     return BusterNodeManifest(
-        id=f"buster.{host}",
+        id=f"buster.{naming.node_slug()}",
         name=f"Buster on {host}",
         product="buster",
         version=__version__,
-        host=host,
+        host=lan_name,
         api_url=f"{base}/api",
         health_url=f"{base}/api/health",
         mcp_url="",

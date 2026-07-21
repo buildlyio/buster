@@ -1,5 +1,14 @@
-"""mDNS/Bonjour advertising so `http://buster.local` resolves on the LAN and
-other Buster nodes can discover this one.
+"""mDNS/Bonjour advertising so Buster resolves on the LAN and other Buster
+nodes can discover it.
+
+Multiple Busters can share a LAN, so each node advertises a UNIQUE hostname
+``<node>.buster.local`` (plus an optional bare ``buster.local`` alias for the
+single-node case). See ``buster.discovery.naming``.
+
+mDNS can only publish ``.local`` names. If ``server.domain`` uses another suffix
+(e.g. ``buster.home`` via Pi-hole/local DNS), Buster advertises the equivalent
+``.local`` names over mDNS and ``buster doctor`` prints the exact A records to
+add to that DNS server.
 
 Best-effort: if zeroconf is unavailable or registration fails (common on
 locked-down networks), Buster logs and continues — the localhost URL always
@@ -7,8 +16,7 @@ works. Advertising is gated by ``discovery.advertise_buster``.
 
 Inside the server's asyncio lifespan we must use ``AsyncZeroconf`` — the
 synchronous ``Zeroconf`` starts its own loop machinery and fails when created
-from within a running event loop. ``start_advertising`` (sync) is kept for
-non-async callers; ``start_advertising_async`` is used by the app lifespan.
+from within a running event loop.
 """
 
 from __future__ import annotations
@@ -17,13 +25,14 @@ import logging
 import socket
 
 from buster.config import load_config
+from buster.discovery import naming
 
 log = logging.getLogger("buster.discovery")
 
 # Module-level handles so we can unregister on shutdown.
 _zc = None          # sync Zeroconf
 _azc = None         # AsyncZeroconf
-_info = None
+_infos: list = []   # registered ServiceInfo objects
 
 
 def _local_ip() -> str:
@@ -38,33 +47,58 @@ def _local_ip() -> str:
         return "127.0.0.1"
 
 
-def _build_info():
+def _mdns_host(name: str) -> str:
+    """Map any Buster name to the .local host mDNS will actually publish.
+
+    ``alderaan.buster.home`` -> ``alderaan.buster.local``
+    ``buster.home``          -> ``buster.local``
+    ``.local`` names pass through unchanged.
+    """
+    if name.endswith(".local"):
+        return name
+    # Replace the trailing domain suffix with ".local", keep any node prefix.
+    dom = naming.domain()
+    if name == dom:
+        return "buster.local"
+    if name.endswith("." + dom):
+        prefix = name[: -(len(dom) + 1)]
+        return f"{prefix}.buster.local"
+    return name.split(".")[0] + ".buster.local"
+
+
+def _build_infos():
+    """Return (list[ServiceInfo], ip, port) for every name this node answers to."""
     from zeroconf import ServiceInfo
 
     config = load_config()
     ip = _local_ip()
     port = config.server.port
-    # mDNS can only publish a ".local" hostname. If the configured hostname uses
-    # another suffix (e.g. "buster.home" served by Pi-hole/local DNS), we still
-    # advertise "buster.local" over mDNS and record the configured name in TXT;
-    # the non-.local name must be created in that DNS server (see docs/INSTALL).
-    configured = config.server.hostname or "buster.local"
-    mdns_host = configured if configured.endswith(".local") else "buster.local"
-    # Advertise an HTTP service whose TXT points at the LCDP manifest path, so
-    # peers can discover Buster and fetch its capability manifest.
-    return ServiceInfo(
-        type_="_http._tcp.local.",
-        name=f"Buster ({socket.gethostname()})._http._tcp.local.",
-        addresses=[socket.inet_aton(ip)],
-        port=port,
-        properties={
-            b"product": b"buster",
-            b"lcdp": b"/.well-known/lcdp.json",
-            b"path": b"/",
-            b"hostname": configured.encode(),
-        },
-        server=mdns_host.rstrip(".") + ".",
-    ), ip, port
+    addr = socket.inet_aton(ip)
+    names = naming.all_names()
+    primary = names[0]
+
+    infos = []
+    for i, name in enumerate(names):
+        host = _mdns_host(name).rstrip(".") + "."
+        # Distinct service-instance label per name so they don't collide.
+        label = "Buster" if i == 0 else f"Buster alias {i}"
+        infos.append(
+            ServiceInfo(
+                type_="_http._tcp.local.",
+                name=f"{label} ({naming.node_slug()})._http._tcp.local.",
+                addresses=[addr],
+                port=port,
+                properties={
+                    b"product": b"buster",
+                    b"lcdp": b"/.well-known/lcdp.json",
+                    b"path": b"/",
+                    b"node": naming.node_slug().encode(),
+                    b"name": primary.encode(),
+                },
+                server=host,
+            )
+        )
+    return infos, ip, port
 
 
 def _enabled() -> bool:
@@ -75,7 +109,7 @@ def _enabled() -> bool:
 # -- async (used by the server lifespan) -------------------------------------
 
 async def start_advertising_async() -> bool:
-    global _azc, _info
+    global _azc, _infos
     if not _enabled():
         return False
     try:
@@ -84,10 +118,11 @@ async def start_advertising_async() -> bool:
         log.info("zeroconf not available; skipping mDNS advertising (%r)", exc)
         return False
     try:
-        _info, ip, port = _build_info()
+        _infos, ip, port = _build_infos()
         _azc = AsyncZeroconf()
-        await _azc.async_register_service(_info, allow_name_change=True)
-        log.info("Advertising buster.local on %s:%s via mDNS", ip, port)
+        for info in _infos:
+            await _azc.async_register_service(info, allow_name_change=True)
+        log.info("Advertising %s on %s:%s via mDNS", naming.all_names(), ip, port)
         return True
     except Exception as exc:  # noqa: BLE001
         log.warning("mDNS advertising failed (%r); localhost URL still works", exc)
@@ -96,10 +131,11 @@ async def start_advertising_async() -> bool:
 
 
 async def stop_advertising_async() -> None:
-    global _azc, _info
+    global _azc, _infos
     try:
-        if _azc and _info:
-            await _azc.async_unregister_service(_info)
+        if _azc:
+            for info in _infos:
+                await _azc.async_unregister_service(info)
     except Exception:  # noqa: BLE001
         pass
     finally:
@@ -109,13 +145,13 @@ async def stop_advertising_async() -> None:
             except Exception:  # noqa: BLE001
                 pass
         _azc = None
-        _info = None
+        _infos = []
 
 
 # -- sync (standalone / non-async callers) -----------------------------------
 
 def start_advertising() -> bool:
-    global _zc, _info
+    global _zc, _infos
     if not _enabled():
         return False
     try:
@@ -124,10 +160,11 @@ def start_advertising() -> bool:
         log.info("zeroconf not available; skipping mDNS advertising (%r)", exc)
         return False
     try:
-        _info, ip, port = _build_info()
+        _infos, ip, port = _build_infos()
         _zc = Zeroconf()
-        _zc.register_service(_info, allow_name_change=True)
-        log.info("Advertising buster.local on %s:%s via mDNS", ip, port)
+        for info in _infos:
+            _zc.register_service(info, allow_name_change=True)
+        log.info("Advertising %s on %s:%s via mDNS", naming.all_names(), ip, port)
         return True
     except Exception as exc:  # noqa: BLE001
         log.warning("mDNS advertising failed (%r); localhost URL still works", exc)
@@ -136,10 +173,11 @@ def start_advertising() -> bool:
 
 
 def stop_advertising() -> None:
-    global _zc, _info
+    global _zc, _infos
     try:
-        if _zc and _info:
-            _zc.unregister_service(_info)
+        if _zc:
+            for info in _infos:
+                _zc.unregister_service(info)
     except Exception:  # noqa: BLE001
         pass
     finally:
@@ -149,4 +187,4 @@ def stop_advertising() -> None:
             except Exception:  # noqa: BLE001
                 pass
         _zc = None
-        _info = None
+        _infos = []
