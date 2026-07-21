@@ -35,6 +35,11 @@ class ServerConfig(BaseModel):
     lan_access: bool = False
     # Token required when lan_access is enabled. Generated at first LAN enable.
     lan_token: str = ""
+    # Friendly hostname shown in banners/onboarding. mDNS publishes the
+    # ".local" name automatically; other suffixes (e.g. "buster.home" via a
+    # Pi-hole / local DNS server) must be configured in that DNS server — see
+    # docs/INSTALL.md. This value only controls what Buster advertises/prints.
+    hostname: str = "buster.local"
 
 
 class InferenceConfig(BaseModel):

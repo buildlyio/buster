@@ -97,17 +97,23 @@ fi
 # 8. Start + report ----------------------------------------------------------
 "$BIN_DIR/buster" start >/dev/null 2>&1 || true
 PORT="$("$VENV/bin/python" -c 'from buster.config import load_config; print(load_config().server.port)' 2>/dev/null || echo 8765)"
+HOST="$("$VENV/bin/python" -c 'from buster.config import load_config; print(load_config().server.hostname)' 2>/dev/null || echo buster.local)"
 
 cat <<EOF
 
 $(ok "Buster is running.")
 
 CLI:       buster
-Web:       http://buster.local
+Web:       http://$HOST:$PORT
 Fallback:  http://localhost:$PORT
 Status:    buster status
 
 Inference policy: Local first
 
 Recovery:  buster doctor   ·   buster logs   ·   buster restart
+
+Note: buster.local is advertised over mDNS. If your network uses a local DNS
+server (e.g. Pi-hole) with a custom suffix like "buster.home", add an A record
+there pointing that name to this machine, then set server.hostname in your
+Buster config. The localhost URL always works regardless.
 EOF

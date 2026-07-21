@@ -12,6 +12,7 @@ from fastapi import FastAPI
 
 from buster.api.routes import router as api_router
 from buster.config import load_config
+from buster.discovery.advertise import start_advertising_async, stop_advertising_async
 from buster.scheduler.service import Scheduler
 from buster.web import mount_web
 
@@ -21,10 +22,13 @@ async def _lifespan(app: FastAPI):
     scheduler = Scheduler()
     scheduler.start()
     app.state.scheduler = scheduler
+    # Advertise buster.local on the LAN (best-effort; localhost always works).
+    await start_advertising_async()
     try:
         yield
     finally:
         await scheduler.stop()
+        await stop_advertising_async()
 
 
 def create_app() -> FastAPI:
