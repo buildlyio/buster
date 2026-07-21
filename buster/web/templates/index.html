@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="system" data-mode="modern">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Buster</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐶</text></svg>">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="logo">🐶</span>
+        <div>
+          <div class="brand-name">Buster</div>
+          <div class="brand-sub">local-first</div>
+        </div>
+      </div>
+      <nav class="nav">
+        {% for key, label in sections %}
+        <a class="nav-item {% if key == active %}active{% endif %}" href="/ui/{{ key }}"
+           data-section="{{ key }}">{{ label }}</a>
+        {% endfor %}
+      </nav>
+      <div class="status-badge" id="status-badge">
+        <div class="dot" id="status-dot"></div>
+        <span id="status-text">connecting…</span>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <h1 id="section-title">{{ active|capitalize }}</h1>
+        <div class="modes">
+          <label>Theme
+            <select id="theme-select">
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+              <option value="contrast">High contrast</option>
+            </select>
+          </label>
+          <label>Mode
+            <select id="mode-select">
+              <option value="modern">Modern</option>
+              <option value="terminal">Terminal</option>
+              <option value="compact">Compact</option>
+            </select>
+          </label>
+        </div>
+      </header>
+
+      <section class="panel" id="panel"><!-- section content injected here --></section>
+    </main>
+
+    <aside class="activity">
+      <div class="activity-head">Activity</div>
+      <div class="activity-stream" id="activity"></div>
+    </aside>
+  </div>
+
+  <script>window.__ACTIVE__ = "{{ active }}";</script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

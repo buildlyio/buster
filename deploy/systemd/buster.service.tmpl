@@ -1,0 +1,13 @@
+[Unit]
+Description=Buster — local-first assistant
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=__PY__ -m buster.main serve
+Restart=on-failure
+RestartSec=3
+# Buster stores data under the user's home; no root required.
+
+[Install]
+WantedBy=default.target

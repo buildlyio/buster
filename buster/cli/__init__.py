@@ -1,0 +1,1 @@
+"""Buster CLI (Typer + Rich)."""

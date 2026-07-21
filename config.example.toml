@@ -1,0 +1,52 @@
+# Buster example configuration.
+# Copy to your Buster home (see `buster config` for the active path) as config.toml.
+# All values shown are the built-in defaults — Buster runs fine with no file.
+
+[server]
+host = "127.0.0.1"      # localhost only by default
+port = 8765
+lan_access = false      # enabling LAN access requires a token (set during onboarding)
+lan_token = ""
+
+[inference]
+policy = "local_first_ask_external"   # local_only | local_first_ask_external | local_first_auto_lan | no_restriction
+default_provider = "ollama"
+default_model = ""                      # e.g. "gemma3:latest"; blank = auto-pick
+ollama_url = "http://127.0.0.1:11434"
+lan_ollama_urls = []                    # e.g. ["http://alderaan.home:11434"]
+max_steps = 8
+tool_timeout_seconds = 30
+
+[cache]
+memory_limit_mb = 64
+disk_limit_mb = 1024
+default_ttl_seconds = 3600
+
+[discovery]
+enabled = true
+advertise_buster = true
+scan_local_network = false              # mDNS scan off by default
+service_urls = []                       # manually configured LCDP service base URLs
+
+[buildly]
+workspace_enabled = false
+mode = "none"                           # none | local_mcp | hosted_mcp | account
+mcp_url = ""
+account_email = ""
+
+[personality]
+profile = "friendly_guide"              # friendly_guide | quiet_operator | technical_partner | research_companion | household_assistant
+learning_enabled = false
+
+[runtimes]
+detect = true
+allow_task_submission = false           # submitting tasks to real external runtimes is off by default
+
+[scheduler]
+enabled = true
+poll_interval_seconds = 60
+low_disk_percent = 90.0
+high_memory_percent = 90.0
+
+[onboarding]
+completed = false
