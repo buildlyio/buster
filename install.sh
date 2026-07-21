@@ -56,9 +56,11 @@ VENV="$HOME/.buster/venv"
 say "Creating environment at $VENV"
 mkdir -p "$HOME/.buster"
 if command -v uv >/dev/null 2>&1; then
-  uv venv --python "$PY" "$VENV" >/dev/null
+  # --clear makes re-running the installer idempotent (reuse/replace the venv).
+  uv venv --clear --python "$PY" "$VENV" >/dev/null
   uv pip install --python "$VENV/bin/python" -e "$SRC" >/dev/null
 else
+  # venv is created in-place if it already exists; --upgrade-deps refreshes it.
   "$PY" -m venv "$VENV"
   "$VENV/bin/pip" install --upgrade pip >/dev/null
   "$VENV/bin/pip" install -e "$SRC" >/dev/null
@@ -74,28 +76,72 @@ EOF
 chmod +x "$BIN_DIR/buster"
 case ":$PATH:" in *":$BIN_DIR:"*) : ;; *) warn "Add $BIN_DIR to your PATH";; esac
 
+# 6b. Pick a free port if the configured one is taken -----------------------
+# Buster writes/reads its config in the install home; choose an open port so
+# the service doesn't crash-loop when the default (8765) is already in use.
+"$VENV/bin/python" - <<'PYEOF' || warn "Could not verify port; using configured value"
+import socket
+from buster.config import load_config, save_config
+
+def free(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+
+c = load_config()
+if not free(c.server.port):
+    for p in range(8765, 8865):
+        if free(p):
+            old = c.server.port
+            c.server.port = p
+            save_config(c)
+            print(f"  port {old} in use; selected free port {p}")
+            break
+PYEOF
+
 # 7. Install the user-level service -----------------------------------------
+# The service manager starts Buster itself (RunAtLoad / --now), so we do NOT
+# also call `buster start` here — that would race the service for the port.
+# SERVICE_STARTED tracks whether the manager took over; if not, we start once.
+SERVICE_STARTED=0
 if [ "$PLATFORM" = "macos" ]; then
   PLIST="$HOME/Library/LaunchAgents/io.buildly.buster.plist"
   mkdir -p "$HOME/Library/LaunchAgents"
   sed "s#__PY__#$VENV/bin/python#g" "$SRC/deploy/launchd/io.buildly.buster.plist.tmpl" > "$PLIST"
   launchctl unload "$PLIST" 2>/dev/null || true
-  launchctl load "$PLIST" 2>/dev/null || warn "Could not load launchd agent (start manually with 'buster start')"
-  ok "Installed launchd user agent"
+  if launchctl load "$PLIST" 2>/dev/null; then
+    SERVICE_STARTED=1
+    ok "Installed launchd user agent"
+  else
+    warn "Could not load launchd agent (will start manually)"
+  fi
 else
   if command -v systemctl >/dev/null 2>&1; then
     UNIT_DIR="$HOME/.config/systemd/user"; mkdir -p "$UNIT_DIR"
     sed "s#__PY__#$VENV/bin/python#g" "$SRC/deploy/systemd/buster.service.tmpl" > "$UNIT_DIR/buster.service"
     systemctl --user daemon-reload 2>/dev/null || true
-    systemctl --user enable --now buster.service 2>/dev/null || warn "Could not enable service (start manually with 'buster start')"
-    ok "Installed systemd --user service"
+    if systemctl --user enable --now buster.service 2>/dev/null; then
+      SERVICE_STARTED=1
+      ok "Installed systemd --user service"
+    else
+      warn "Could not enable service (will start manually)"
+    fi
   else
-    warn "systemd not available; start manually with 'buster start'"
+    warn "systemd not available; will start manually"
   fi
 fi
 
-# 8. Start + report ----------------------------------------------------------
-"$BIN_DIR/buster" start >/dev/null 2>&1 || true
+# 8. Start (only if the service manager didn't) + report --------------------
+if [ "$SERVICE_STARTED" -eq 0 ]; then
+  "$BIN_DIR/buster" start >/dev/null 2>&1 || true
+else
+  # Give the service a moment to bind before we print status.
+  sleep 2
+fi
 PORT="$("$VENV/bin/python" -c 'from buster.config import load_config; print(load_config().server.port)' 2>/dev/null || echo 8765)"
 NAME="$("$VENV/bin/python" -c 'from buster.discovery import naming; print(naming.primary_name())' 2>/dev/null || echo buster.local)"
 NEEDS_DNS="$("$VENV/bin/python" -c 'from buster.discovery import naming; print("1" if naming.needs_manual_dns() else "0")' 2>/dev/null || echo 0)"
