@@ -538,6 +538,58 @@ async def dev_docs(req: RepoRequest) -> dict:
     return {"docs": docs, "diagrams": diagrams, "engine": svc.engine}
 
 
+# -- dev workflow Phase 2: approve → contracts → sync -------------------------
+
+class ApproveRequest(BaseModel):
+    path: str
+    statement_id: str
+    text: str | None = None          # edit-and-approve
+    action: str = "approve"          # approve | reject | deprecate | unresolved
+    product_id: str = ""
+
+
+@router.post("/dev/approve")
+async def dev_approve(req: ApproveRequest) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    svc = get_dev_service()
+    if req.action == "approve":
+        return await svc.approve_statement(req.path, req.statement_id, text=req.text,
+                                           product_id=req.product_id)
+    status = {"reject": "rejected", "deprecate": "deprecated",
+              "unresolved": "unresolved"}.get(req.action, "rejected")
+    return await svc.set_statement_status(req.path, req.statement_id, status)
+
+
+@router.get("/dev/contracts")
+async def dev_contracts(path: str) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    return {"contracts": await get_dev_service().list_contracts(path)}
+
+
+@router.get("/dev/sync/status")
+async def dev_sync_status(path: str) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    return (await get_dev_service().get_sync_status(path)).model_dump()
+
+
+@router.post("/dev/sync")
+async def dev_sync(req: RepoRequest) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    return await get_dev_service().sync_push(req.path)
+
+
+@router.get("/dev/conflicts")
+async def dev_conflicts(path: str) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    return {"conflicts": [c.model_dump()
+                          for c in await get_dev_service().list_conflicts(path)]}
+
+
 # -- personality / config ------------------------------------------------------
 
 @router.get("/personality")

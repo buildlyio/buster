@@ -835,6 +835,105 @@ def scaffold(
         title="Buildly module"))
 
 
+# ----------------------------------------------------------------------------
+# Phase 2: approve → contracts → sync
+# ----------------------------------------------------------------------------
+
+@app.command()
+def approve(
+    statement_id: str = typer.Argument(..., help="Statement id from 'buster adopt'"),
+    path: str = typer.Option(".", "--path", help="Repository path"),
+    edit: str = typer.Option("", "--edit", help="Edit the text before approving"),
+    reject: bool = typer.Option(False, "--reject", help="Reject instead of approve"),
+    deprecate: bool = typer.Option(False, "--deprecate", help="Mark deprecated"),
+):
+    """Approve (or reject/deprecate) an inferred statement into a local contract.
+
+    Approving queues a sync event; nothing reaches Labs until 'buster sync'.
+    Inferred items never become product truth automatically.
+    """
+    repo = _os.path.abspath(_os.path.expanduser(path))
+    svc = _dev_svc()
+    if reject or deprecate:
+        status = "rejected" if reject else "deprecated"
+        asyncio.run(svc.set_statement_status(repo, statement_id, status))
+        console.print(f"[yellow]Marked {statement_id} {status}[/] (local only, no sync).")
+        return
+    res = asyncio.run(svc.approve_statement(repo, statement_id, text=edit or None))
+    c = res["contract"]
+    console.print(f"[green]✓[/] Approved → contract {c['id']}"
+                  + (" [dim](edited)[/]" if c.get("edited") else ""))
+    console.print(f"[dim]Queued sync event {res['sync_event']}. Run 'buster sync' to push.[/]")
+
+
+@app.command()
+def contracts(path: str = typer.Argument(".", help="Repository path")):
+    """List locally-approved contracts for this repo."""
+    repo = _os.path.abspath(_os.path.expanduser(path))
+    items = asyncio.run(_dev_svc().list_contracts(repo))
+    if not items:
+        console.print("[dim]No contracts yet. Approve items with 'buster approve <id>'.[/]")
+        return
+    table = Table(title="Local contracts")
+    table.add_column("ID"); table.add_column("Kind"); table.add_column("Status")
+    table.add_column("Synced"); table.add_column("Text")
+    for c in items:
+        table.add_row(c["id"], c["kind"], c["status"],
+                      "yes" if c["labs_synced"] else "no", c["text"][:50])
+    console.print(table)
+
+
+sync_app = typer.Typer(help="Synchronization with Buildly Labs")
+app.add_typer(sync_app, name="sync")
+
+
+@sync_app.callback(invoke_without_command=True)
+def sync_main(ctx: typer.Context, path: str = typer.Option(".", "--path")):
+    """Push pending sync events to Labs (default). Offline-safe."""
+    if ctx.invoked_subcommand is not None:
+        return
+    repo = _os.path.abspath(_os.path.expanduser(path))
+    with console.status("Syncing…"):
+        res = asyncio.run(_dev_svc().sync_push(repo))
+    if not res.get("pushed"):
+        console.print(f"[yellow]Not pushed:[/] {res.get('reason')}. "
+                      "[dim]Local work is safe; pending events kept for retry.[/]")
+    else:
+        r = res["result"]
+        console.print(f"[green]✓[/] applied {r['applied']}, conflicts {r['conflicts']}, "
+                      f"failed {r['failed']} (of {r['processed']}).")
+    _print_sync_status(res["status"])
+
+
+@sync_app.command("status")
+def sync_status(path: str = typer.Argument(".", help="Repository path")):
+    """Show pending/applied/conflict/failed sync counts + Labs connection."""
+    repo = _os.path.abspath(_os.path.expanduser(path))
+    status = asyncio.run(_dev_svc().get_sync_status(repo)).model_dump()
+    # Add live Labs connection state.
+    from buster.buildly.mcp_client import get_mcp_client
+
+    client = get_mcp_client()
+    if client.available:
+        state = asyncio.run(client.auth_state())
+        status["connected"] = state.value == "ok"
+        status["labs_state"] = state.value
+    _print_sync_status(status)
+
+
+def _print_sync_status(status: dict):
+    t = Table(show_header=False, box=None)
+    labs = status.get("labs_state", "connected" if status.get("connected") else "offline")
+    t.add_row("Labs", "[green]connected[/]" if status.get("connected")
+              else f"[yellow]{labs}[/] [dim](local work continues)[/]")
+    t.add_row("Pending", str(status.get("pending", 0)))
+    t.add_row("Applied", str(status.get("applied", 0)))
+    t.add_row("Conflicts", f"[red]{status.get('conflicts', 0)}[/]" if status.get("conflicts")
+              else "0")
+    t.add_row("Failed", str(status.get("failed", 0)))
+    console.print(Panel(t, title="Sync status"))
+
+
 forge_app = typer.Typer(help="Buildly Forge marketplace apps")
 app.add_typer(forge_app, name="forge")
 

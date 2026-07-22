@@ -261,12 +261,89 @@ class MockBuildlyDevelopmentService:
         )
 
     async def get_sync_status(self, path: str) -> SyncStatus:
-        pending_dir = Path(path) / _SYNC_PENDING
-        pending = len(list(pending_dir.glob("*.json"))) if pending_dir.exists() else 0
-        return SyncStatus(connected=False, pending=pending)
+        from buster.buildly.sync import SyncJournal
+
+        return SyncJournal(path).status()
 
     async def list_conflicts(self, path: str) -> list[SyncConflict]:
-        return []
+        from buster.buildly.sync import SyncJournal
+
+        events = SyncJournal(path)._load_dir(SyncJournal(path).conflicts)
+        return [SyncConflict(id=e.id, field=e.kind, local_value=str(e.payload)[:200])
+                for e in events]
+
+    # -- Phase 2: approve → contract → journal -------------------------------
+
+    async def approve_statement(
+        self, path: str, statement_id: str, *, text: str | None = None,
+        product_id: str = "", approved_by: str = "user",
+    ) -> dict:
+        """Approve an inferred statement into a local contract + queue a sync event.
+
+        If `text` is provided it counts as an edit-and-approve. Never touches Labs
+        directly; the sync event is pushed later through the MCP client.
+        """
+        from buster.buildly.contracts import ContractStore
+        from buster.buildly.sync import SyncJournal
+
+        report = await self.get_adoption_report(path)
+        stmt = None
+        if report:
+            stmt = next((s for s in report.statements if s.id == statement_id), None)
+        final_text = text if text is not None else (stmt.text if stmt else statement_id)
+        edited = text is not None and stmt is not None and text != stmt.text
+
+        store = ContractStore(path)
+        cid = f"contract_{statement_id}"
+        rec = store.approve(contract_id=cid, kind="statement", text=final_text,
+                            source_statement_id=statement_id, product_id=product_id,
+                            approved_by=approved_by, edited=edited)
+        evt = SyncJournal(path).record("contract.approved.statement", {
+            "contract_id": rec.id, "text": final_text, "product_id": product_id})
+        return {"contract": rec.model_dump(), "sync_event": evt.id}
+
+    async def set_statement_status(self, path: str, statement_id: str, status: str) -> dict:
+        """Reject / deprecate / keep-unresolved (no sync event; local only)."""
+        from buster.buildly.contracts import ContractStore
+        from buster.buildly.protocol import StatementStatus
+
+        store = ContractStore(path)
+        cid = f"contract_{statement_id}"
+        rec = store.get(cid)
+        if rec is None:
+            # create a record just to hold the decision
+            rec = store.approve(contract_id=cid, kind="statement", text=statement_id,
+                                source_statement_id=statement_id)
+        updated = store.set_status(cid, StatementStatus(status))
+        return {"contract": updated.model_dump() if updated else None}
+
+    async def list_contracts(self, path: str) -> list[dict]:
+        from buster.buildly.contracts import ContractStore
+
+        return [c.model_dump() for c in ContractStore(path).list()]
+
+    async def sync_push(self, path: str) -> dict:
+        """Push pending sync events through the MCP client to bb-agent-manager.
+
+        Offline-safe: if the MCP server is unreachable, nothing is lost — events
+        stay pending and this returns a clear 'offline' result.
+        """
+        from buster.buildly.mcp_client import LabsAuthState, get_mcp_client
+        from buster.buildly.sync import SyncJournal
+
+        client = get_mcp_client()
+        journal = SyncJournal(path)
+        if not client.available:
+            return {"pushed": False, "reason": "no bb-agent-manager configured",
+                    "status": journal.status().model_dump()}
+        state = await client.auth_state()
+        if state != LabsAuthState.OK:
+            return {"pushed": False, "reason": f"labs {state.value}",
+                    "status": journal.status().model_dump()}
+
+        binding = await self.get_binding(path)
+        result = await journal.push(client, product_id=binding.product_id)
+        return {"pushed": True, "result": result, "status": journal.status().model_dump()}
 
 
 def get_dev_service() -> MockBuildlyDevelopmentService:

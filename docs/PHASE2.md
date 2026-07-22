@@ -8,7 +8,7 @@ model. Nothing here weakens the Phase 1 safety guarantees.
 Status: design. Build order and scope agreed with the user:
 
 1. Buster → Hermes / OpenClaw task routing  ← **DONE (v2 schema)**
-2. bb-agent-manager (Buildly MCP) integration  ← next
+2. bb-agent-manager (Buildly MCP) integration  ← DONE (Phase 1 + Phase 2)
 3. Developer setup: bb-code + tokenjam
 4. Hosted model providers (Claude / OpenAI)
 

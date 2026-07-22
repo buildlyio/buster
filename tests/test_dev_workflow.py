@@ -72,9 +72,10 @@ def test_binding_stored_locally(fastapi_repo):
 
 
 def test_offline_sync_status_counts_pending(fastapi_repo):
-    pending = fastapi_repo / ".buildly" / "sync" / "pending"
-    pending.mkdir(parents=True)
-    (pending / "evt_1.json").write_text("{}")
+    # Record a real event via the journal (validated schema).
+    from buster.buildly.sync import SyncJournal
+
+    SyncJournal(str(fastapi_repo)).record("issue.create", {"name": "x"})
     status = asyncio.run(get_dev_service().get_sync_status(str(fastapi_repo)))
     assert status.connected is False
     assert status.pending == 1
