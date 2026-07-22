@@ -89,8 +89,27 @@ memory search, and caching all work without an LLM.
 ```sh
 buster start | stop | restart | status | logs
 buster update
-buster uninstall
 ```
+
+## Uninstalling
+
+```sh
+buster uninstall            # stop + remove the service, venv, and CLI shim; KEEP data
+buster uninstall --purge    # also delete reports, memory, and config (irreversible)
+buster uninstall --keep-program   # only remove the service, leave the venv/CLI in place
+```
+
+Or, if the CLI isn't on your PATH (or the venv is already gone), run the script
+from a checkout:
+
+```sh
+./uninstall.sh              # keeps data
+./uninstall.sh --purge      # deletes data too
+```
+
+Either path unloads the launchd (macOS) / systemd (Linux) user service, removes
+`~/.buster/venv` and the `buster` shim, and — only with `--purge` — deletes the
+data directory. Both are idempotent and safe to re-run.
 
 ## Privacy
 

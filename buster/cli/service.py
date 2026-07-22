@@ -12,6 +12,7 @@ import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import httpx
 
@@ -93,3 +94,64 @@ def logs(lines: int = 40) -> str:
         return "(no logs yet)"
     content = log_file.read_text(errors="replace").splitlines()
     return "\n".join(content[-lines:])
+
+
+# -- service-manager artifact locations --------------------------------------
+
+def _launchd_plist() -> Path:
+    return Path.home() / "Library" / "LaunchAgents" / "io.buildly.buster.plist"
+
+
+def _systemd_unit() -> Path:
+    return Path.home() / ".config" / "systemd" / "user" / "buster.service"
+
+
+def _venv_dir() -> Path:
+    return Path.home() / ".buster" / "venv"
+
+
+def _bin_shim() -> Path:
+    return Path.home() / ".local" / "bin" / "buster"
+
+
+def remove_service() -> list[str]:
+    """Stop the process and unload+remove the user-level service. Returns a log
+    of actions taken. Idempotent — safe when nothing is installed."""
+    done: list[str] = []
+    # 1. Stop the running process (pidfile path).
+    ok, _ = stop()
+    done.append("Stopped running process")
+
+    # 2. launchd (macOS)
+    plist = _launchd_plist()
+    if plist.exists():
+        subprocess.run(["launchctl", "unload", str(plist)],
+                       capture_output=True, check=False)
+        plist.unlink(missing_ok=True)
+        done.append(f"Unloaded and removed {plist}")
+
+    # 3. systemd --user (Linux)
+    unit = _systemd_unit()
+    if unit.exists():
+        subprocess.run(["systemctl", "--user", "disable", "--now", "buster.service"],
+                       capture_output=True, check=False)
+        unit.unlink(missing_ok=True)
+        subprocess.run(["systemctl", "--user", "daemon-reload"],
+                       capture_output=True, check=False)
+        done.append(f"Disabled and removed {unit}")
+
+    return done
+
+
+def remove_program(remove_venv: bool = True, remove_shim: bool = True) -> list[str]:
+    """Remove the installed venv and PATH shim (not the data dir)."""
+    import shutil
+
+    done: list[str] = []
+    if remove_shim and _bin_shim().exists():
+        _bin_shim().unlink(missing_ok=True)
+        done.append(f"Removed {_bin_shim()}")
+    if remove_venv and _venv_dir().exists():
+        shutil.rmtree(_venv_dir(), ignore_errors=True)
+        done.append(f"Removed {_venv_dir()}")
+    return done

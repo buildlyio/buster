@@ -174,22 +174,41 @@ def update(
 @app.command()
 def uninstall(
     purge: bool = typer.Option(False, "--purge", help="Also delete Buster data (irreversible)"),
+    keep_program: bool = typer.Option(
+        False, "--keep-program", help="Keep ~/.buster/venv and the CLI shim (only remove the service)"
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
 ):
-    """Stop the service and print uninstall steps. Data is preserved unless --purge."""
-    svc.stop()
-    paths = __import__("buster.config", fromlist=["get_paths"]).get_paths()
-    console.print("Stopped Buster.")
-    console.print("Remove the service files manually:")
-    console.print("  macOS:  ~/Library/LaunchAgents/io.buildly.buster.plist")
-    console.print("  Linux:  ~/.config/systemd/user/buster.service")
-    if purge:
-        if typer.confirm(f"Delete ALL Buster data under {paths.home}? This cannot be undone."):
-            import shutil
+    """Cleanly remove Buster: stop it, unload+remove the user service, and delete
+    the installed environment. Data is preserved unless --purge."""
+    from buster.config import get_paths
 
-            shutil.rmtree(paths.home, ignore_errors=True)
-            console.print(f"[yellow]Deleted {paths.home}[/]")
+    paths = get_paths()
+    console.print("This will:")
+    console.print("  • stop Buster and unload its launchd/systemd user service")
+    if not keep_program:
+        console.print("  • remove ~/.buster/venv and the 'buster' CLI shim")
+    console.print(f"  • {'DELETE' if purge else 'preserve'} data at {paths.home}"
+                  + ("  [red](irreversible)[/]" if purge else " (use --purge to delete)"))
+    if not yes and not typer.confirm("Proceed?", default=False):
+        console.print("[dim]Cancelled.[/]")
+        return
+
+    for line in svc.remove_service():
+        console.print(f"  [green]✓[/] {line}")
+    if not keep_program:
+        for line in svc.remove_program():
+            console.print(f"  [green]✓[/] {line}")
+
+    if purge:
+        import shutil
+
+        shutil.rmtree(paths.home, ignore_errors=True)
+        console.print(f"  [yellow]✓ Deleted data at {paths.home}[/]")
     else:
-        console.print(f"[dim]Data preserved at {paths.home} (use --purge to delete).[/]")
+        console.print(f"  [dim]Data preserved at {paths.home}[/]")
+
+    console.print("\n[green]Buster uninstalled.[/] Thanks for trying it — buildly.io 🐰")
 
 
 @app.command()
