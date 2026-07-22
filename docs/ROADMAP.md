@@ -25,6 +25,11 @@ onboarding + mock adapters, prompt library, and a configurable personality.
 
 ## Phase 2 — Depth (planned)
 
+> Detailed design: [PHASE2.md](PHASE2.md) — runtime task routing, Buildly MCP
+> (bb-agent-manager), developer tooling (bb-code, tokenjam), and hosted model
+> providers, all behind the existing gated-remote consent model.
+
+
 - Remote/commercial provider implementations behind the existing
   `ModelProvider` protocol, gated by policy + explicit consent.
 - Semantic index over `document_chunks` (SQLite vector search) behind the
