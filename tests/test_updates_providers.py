@@ -101,3 +101,35 @@ def test_onboarding_default_prefers_provider_with_models():
     found = local + lan
     first_usable = next((i for i, p in enumerate(found, 1) if p.models), None)
     assert first_usable == 2  # the LAN server, not the empty local one
+
+
+def test_capability_context_lists_real_functions():
+    """The agent system preamble must describe Buster's real capabilities."""
+    from buster.context import build_context
+
+    ctx = build_context("what can you do?")
+    p = ctx.system_preamble.lower()
+    assert "you are buster" in p
+    # Mentions concrete capability areas, not generic chat.
+    assert "diagnose" in p
+    assert "research the web" in p
+    assert "capabilities" in ctx.categories_loaded
+
+
+def test_model_size_parsing_and_suggestion():
+    from buster.models.capability import _model_billions, suggest_faster_model
+
+    assert _model_billions("gemma4:e4b") == 4.0
+    assert _model_billions("qwen2.5:7b") == 7.0
+    assert _model_billions("llama3:70b") == 70.0
+    # A 70B model on any normal box should trigger a smaller-model suggestion.
+    s = suggest_faster_model("llama3:70b", ["llama3:70b", "qwen2.5:7b"])
+    assert s and "qwen2.5:7b" in s
+
+
+def test_static_detection_is_cached():
+    from buster.models.capability import _static_detection
+
+    a = _static_detection()
+    b = _static_detection()
+    assert a is b  # lru_cache returns the same object

@@ -197,6 +197,24 @@ async def run_doctor() -> DoctorReport:
             )
         )
 
+    # Model fit — suggest a faster model if the active one is large for the box.
+    try:
+        from buster.models.capability import suggest_faster_model
+        from buster.models.router import ModelRouter
+
+        r = ModelRouter(config)
+        models = [m.name for m in await r.available_models()]
+        active = config.inference.default_model or (models[0] if models else "")
+        suggestion = suggest_faster_model(active, models) if active else None
+        if suggestion:
+            checks.append(CheckResult(
+                check="model_fit", status=CheckStatus.OK,
+                summary="A faster model is available",
+                recommendations=[suggestion, f"Set it with: buster config (default_model)"],
+            ))
+    except Exception:  # noqa: BLE001
+        pass
+
     # Tool-pack load
     try:
         from buster.tools import get_registry

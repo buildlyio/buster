@@ -65,13 +65,25 @@ class ModelRouter:
     async def local_provider(self) -> OllamaProvider:
         return self._local
 
-    async def available_models(self) -> list[ModelInfo]:
+    async def available_models(self, use_cache: bool = True) -> list[ModelInfo]:
+        # Model inventory changes rarely but costs a network round-trip per
+        # provider. Cache it briefly so /status and repeated routes stay snappy.
+        from buster.cache import get_cache
+
+        cache = get_cache()
+        key = "router:available_models"
+        if use_cache:
+            hit = cache.mem_get(key)
+            if hit is not None:
+                return [ModelInfo.model_validate(m) for m in hit]
+
         models: list[ModelInfo] = []
         for prov in [*self._device, *self._lan]:
             try:
                 models += await prov.list_models()
             except Exception:  # noqa: BLE001
                 pass
+        cache.mem_set(key, [m.model_dump() for m in models], ttl=30)
         return models
 
     def _pick_default(self, models: list[ModelInfo]) -> str | None:
@@ -95,6 +107,28 @@ class ModelRouter:
     ) -> RouteDecision:
         """Choose a provider+model for a chat task."""
         policy = self.config.inference.policy
+
+        # 0: honor an explicitly requested/configured model wherever it lives.
+        # Without this, the device tier (checked first) could win with a
+        # different model than the user's configured default (which may be on
+        # the LAN). Device is still preferred when it HAS the wanted model.
+        wanted = model or self.config.inference.default_model
+        if wanted:
+            for prov, loc in ([(p, "device") for p in self._device]
+                              + [(p, "lan") for p in self._lan]):
+                if loc == "lan" and policy not in (
+                    "local_first_auto_lan", "no_restriction", "local_first_ask_external"
+                ):
+                    continue
+                try:
+                    if (await prov.health()).reachable and _has(await prov.list_models(), wanted):
+                        return RouteDecision(
+                            provider=prov, model=wanted, location=loc,
+                            external_data_shared=False,
+                            reason=f"Using configured model '{wanted}' on {prov.name} ({loc}).",
+                        )
+                except Exception:  # noqa: BLE001
+                    continue
 
         # 1 & 2: current device (local Ollama, then local LM Studio).
         for prov in self._device:

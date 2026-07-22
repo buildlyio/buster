@@ -9,6 +9,7 @@ from __future__ import annotations
 import platform
 import shutil
 import subprocess
+from functools import lru_cache
 from typing import Literal
 
 import psutil
@@ -105,24 +106,78 @@ def _recommend_model_class(memory_gb: float, gpu: GpuBackend, is_pi: bool) -> st
     return "14b-32b"
 
 
-def detect_capabilities() -> CapabilityProfile:
+def _model_billions(name: str) -> float | None:
+    """Best-effort parameter size (in billions) parsed from a model name."""
+    import re
+
+    m = re.search(r"(\d+(?:\.\d+)?)\s*b\b", name.lower())
+    if m:
+        return float(m.group(1))
+    # e4b / e2b style (effective params)
+    m = re.search(r"e(\d+)b", name.lower())
+    return float(m.group(1)) if m else None
+
+
+def suggest_faster_model(active_model: str, available: list[str]) -> str | None:
+    """If the active model looks large for this machine and a smaller one is
+    available locally, suggest it. Returns a suggestion string or None."""
+    prof = detect_capabilities()
+    size = _model_billions(active_model)
+    if size is None:
+        return None
+    # Rough "large for this box" heuristic keyed on RAM + acceleration.
+    threshold = 14.0 if prof.gpu_backend != "none" and prof.memory_gb >= 16 else 8.0
+    if prof.is_raspberry_pi:
+        threshold = 3.0
+    if size <= threshold:
+        return None
+    smaller = sorted(
+        [(m, _model_billions(m)) for m in available if _model_billions(m) and _model_billions(m) < size
+         and "embed" not in m.lower()],
+        key=lambda x: x[1] or 0,
+    )
+    if not smaller:
+        return None
+    pick = smaller[-1][0]  # largest that's still under the active one
+    return (f"'{active_model}' (~{size:g}B) is large for this machine "
+            f"({prof.memory_gb:.0f} GB, {prof.gpu_backend}); "
+            f"'{pick}' would respond faster.")
+
+
+@lru_cache(maxsize=1)
+def _static_detection() -> dict:
+    """Detection that never changes within a session but is expensive: GPU
+    probes (subprocess), /proc reads, PATH lookups. Memoized for the process."""
     plat = _detect_platform()
     arch = platform.machine().lower()
     arch = {"aarch64": "arm64", "amd64": "x86_64"}.get(arch, arch)
+    return {
+        "platform": plat,
+        "architecture": arch,
+        "cpu_cores": psutil.cpu_count(logical=True) or 1,
+        "gpu_backend": _detect_gpu(plat, arch),
+        "is_raspberry_pi": _detect_raspberry_pi(plat),
+        "local_runtime": "ollama" if shutil.which("ollama") else "none",
+    }
 
+
+def detect_capabilities() -> CapabilityProfile:
+    static = _static_detection()
+    plat = static["platform"]
+    arch = static["architecture"]
+    cores = static["cpu_cores"]
+    gpu = static["gpu_backend"]
+    is_pi = static["is_raspberry_pi"]
+    runtime = static["local_runtime"]
+
+    # Dynamic values are cheap; read fresh each call.
     vm = psutil.virtual_memory()
     memory_gb = vm.total / (1024**3)
     available_gb = vm.available / (1024**3)
-    cores = psutil.cpu_count(logical=True) or 1
-
     try:
         disk_free_gb = psutil.disk_usage("/").free / (1024**3)
     except Exception:
         disk_free_gb = 0.0
-
-    gpu = _detect_gpu(plat, arch)
-    is_pi = _detect_raspberry_pi(plat)
-    runtime = "ollama" if shutil.which("ollama") else "none"
 
     return CapabilityProfile(
         platform=plat,

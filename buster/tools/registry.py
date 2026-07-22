@@ -53,6 +53,36 @@ class ToolRegistry:
     def for_platform(self, platform: str) -> list[ToolSpec]:
         return [t for t in self._tools.values() if t.supported_here(platform)]
 
+    def capability_summary(self) -> str:
+        """Human-readable summary of what Buster can do, grouped by pack.
+
+        Injected into the system prompt so the model answers "what can you do?"
+        as Buster (not as a generic chatbot). Built from the live registry, so
+        it stays accurate as packs are added/removed.
+        """
+        # Friendly labels for each pack (fallback to the pack name).
+        labels = {
+            "web_research": "Research the web and organize sources",
+            "report_builder": "Turn findings into durable local Markdown reports",
+            "system_diagnostics": "Diagnose this computer (CPU, memory, disk, processes, Ollama)",
+            "network_diagnostics": "Diagnose the local network (DNS, gateway, reachability, latency)",
+            "discovery": "Discover services, Buster nodes, and capabilities on the network",
+            "memory": "Search and save durable local memory",
+            "report": "Generate and manage reports",
+            "tasks": "Track tasks and activity",
+            "files": "Read Buster's own data files",
+            "buildly_workspace": "Connect optional Buildly Workspace tools",
+            "core": "Report time and this machine's capabilities",
+        }
+        by_pack: dict[str, list[str]] = {}
+        for t in self._tools.values():
+            by_pack.setdefault(t.pack, []).append(t.id)
+        lines = []
+        for pack in sorted(by_pack):
+            label = labels.get(pack, pack.replace("_", " "))
+            lines.append(f"- {label} ({len(by_pack[pack])} tools)")
+        return "\n".join(lines)
+
     async def invoke(self, tool_id: str, arguments: dict[str, Any]) -> BaseModel | dict:
         spec = self._tools.get(tool_id)
         if spec is None or spec.func is None:

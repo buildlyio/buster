@@ -60,14 +60,27 @@ def _tools_for_task(kind: str, platform: str, registry) -> list[ToolSpec]:
     return [t for t in all_tools if t.pack in packs]
 
 
+# Tool JSON-schemas are stable per tool id; cache them so we don't rebuild the
+# Ollama tool payload on every request.
+_SCHEMA_CACHE: dict[str, dict] = {}
+
+
 def _to_ollama_tools(specs: list[ToolSpec]) -> list[dict]:
     out = []
     for s in specs:
-        schema = s.input_model.model_json_schema() if s.input_model else {"type": "object", "properties": {}}
-        out.append({
-            "type": "function",
-            "function": {"name": s.id, "description": s.description, "parameters": schema},
-        })
+        cached = _SCHEMA_CACHE.get(s.id)
+        if cached is None:
+            schema = (
+                s.input_model.model_json_schema()
+                if s.input_model
+                else {"type": "object", "properties": {}}
+            )
+            cached = {
+                "type": "function",
+                "function": {"name": s.id, "description": s.description, "parameters": schema},
+            }
+            _SCHEMA_CACHE[s.id] = cached
+        out.append(cached)
     return out
 
 
