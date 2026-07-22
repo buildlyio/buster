@@ -196,3 +196,15 @@ if [ "$NEEDS_DNS" = "1" ]; then
   echo "your local DNS server (e.g. Pi-hole), then re-run 'buster doctor':"
   "$VENV/bin/python" -c 'from buster.discovery import naming; [print("  A  %s -> %s" % (n, ip)) for n, ip in naming.dns_records()]' 2>/dev/null || true
 fi
+
+# 9. Model provider onboarding ----------------------------------------------
+# Discover Ollama / LM Studio (local + LAN) and let the user pick one. This is
+# the step that finds your models. Only runs interactively; a piped
+# `curl | sh` install prints a hint to run it manually instead.
+echo
+if [ -t 0 ] && [ -t 1 ]; then
+  say "Let's find a model for Buster to use…"
+  "$BIN_DIR/buster" setup </dev/tty || warn "Provider setup skipped; run 'buster setup' anytime."
+else
+  say "Next: run  buster setup   to detect your Ollama / LM Studio models (local or on your network)."
+fi

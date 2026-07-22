@@ -27,7 +27,20 @@ def run_provider_onboarding(console: Console) -> None:
     console.print("Looking for a model provider on this device…")
     local = asyncio.run(detect_local())
 
-    scan = Confirm.ask("Scan the local network for Ollama / LM Studio servers?", default=True)
+    # A local provider that's running but has no models isn't usable yet — call
+    # that out and steer toward a LAN scan (models may live on another host).
+    local_usable = [p for p in local if p.models]
+    local_empty = [p for p in local if not p.models]
+    for p in local_empty:
+        console.print(f"[yellow]Found {p.kind} on this device but it has no models "
+                      f"installed.[/] Pull one with e.g. [bold]ollama pull gemma3[/], "
+                      f"or use a server on your network.")
+
+    default_scan = True  # default to scanning; especially useful when local is empty
+    scan = Confirm.ask("Scan the local network for Ollama / LM Studio servers?",
+                       default=default_scan)
+    if scan:
+        console.print("[dim]Scanning the local network (a few seconds)…[/]")
     lan = asyncio.run(detect_lan(scan=scan)) if scan else []
 
     found = local + lan
@@ -36,11 +49,17 @@ def run_provider_onboarding(console: Console) -> None:
         table.add_column("#"); table.add_column("Type"); table.add_column("Where")
         table.add_column("Endpoint"); table.add_column("Models")
         for i, p in enumerate(found, 1):
-            table.add_row(str(i), p.kind, p.location, p.base_url,
-                          ", ".join(p.models[:3]) + ("…" if len(p.models) > 3 else "") or "(none)")
+            models_txt = (", ".join(p.models[:3]) + ("…" if len(p.models) > 3 else "")) \
+                if p.models else "[yellow](no models)[/]"
+            table.add_row(str(i), p.kind, p.location, p.base_url, models_txt)
         console.print(table)
     else:
         console.print("[yellow]No local or LAN providers detected.[/]")
+
+    # Default to the first provider that actually has models (usually the LAN
+    # server when the local one is empty).
+    first_usable = next((i for i, p in enumerate(found, 1) if p.models), None)
+    default_choice = str(first_usable) if first_usable else ("1" if found else "s")
 
     console.print(
         "\nOptions:\n"
@@ -49,7 +68,7 @@ def run_provider_onboarding(console: Console) -> None:
         "([red]sends data off your network[/])\n"
         "  [bold]s[/]       skip for now"
     )
-    choice = Prompt.ask("Choose", default="1" if found else "s")
+    choice = Prompt.ask("Choose", default=default_choice)
 
     config = load_config()
     if choice.lower() == "s":

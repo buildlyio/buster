@@ -86,3 +86,18 @@ def test_ascii_rabbit_is_pure_ascii():
     art.RABBIT.encode("ascii")
     art.RABBIT_LARGE.encode("ascii")
     assert "buildly.io" in art.TAGLINE
+
+
+def test_onboarding_default_prefers_provider_with_models():
+    """When local has no models but a LAN server does, the default choice must
+    point at the provider that actually has models."""
+    from buster.models.detect import DetectedProvider
+
+    local = [DetectedProvider(kind="ollama", base_url="http://127.0.0.1:11434",
+                              location="device", host="127.0.0.1", models=[])]
+    lan = [DetectedProvider(kind="ollama", base_url="http://192.168.1.113:11434",
+                            location="lan", host="192.168.1.113",
+                            models=["gemma3:latest"])]
+    found = local + lan
+    first_usable = next((i for i, p in enumerate(found, 1) if p.models), None)
+    assert first_usable == 2  # the LAN server, not the empty local one
