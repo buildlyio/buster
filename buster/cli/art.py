@@ -1,25 +1,26 @@
-"""Buster's ASCII art. Buster is a rabbit. Brought to you by buildly.io."""
+"""Buster's ASCII art — Buster the Buildly Rabbit.
+
+The canonical rabbit and tagline are the established Buildly identity (from the
+Buildly CLI). Pure ASCII so it renders identically in every terminal.
+"""
 
 from __future__ import annotations
 
-# Original ASCII-art rabbit for CLI banners and the installer. Pure ASCII so it
-# renders identically in every terminal.
+# Canonical Buster the Buildly Rabbit.
 RABBIT = r"""
-     (\_/)
-     (o.o)     B U S T E R
-     (> <)     your local-first assistant
+    /\_/\
+   ( o.o )   B U S T E R
+    > ^ <    your local-first assistant
 """
 
-# A taller variant for the interactive banner header.
+# Banner variant with the identity line beside it.
 RABBIT_LARGE = r"""
-      (\_/)
-      ( o.o )
-      ( > < )
-     __(   )__      B U S T E R
-    /  `---'  \     local-first assistant
+    /\_/\
+   ( o.o )   Buster the Buildly Rabbit
+    > ^ <    your local-first assistant
 """
 
-TAGLINE = "brought to you by buildly.io"
+TAGLINE = "Buildly.io - Build Smarter, Not Harder"
 
 
 def banner(subtitle: str = "") -> str:

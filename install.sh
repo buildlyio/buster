@@ -9,13 +9,13 @@ say() { printf "${BLUE}==>${NC} %s\n" "$1"; }
 ok()  { printf "${GREEN}✓${NC} %s\n" "$1"; }
 warn(){ printf "${YELLOW}!${NC} %s\n" "$1"; }
 
-# Buster is a rabbit. Brought to you by buildly.io.
+# Buster the Buildly Rabbit.
 cat <<'RABBIT'
 
-     (\_/)
-     (o.o)     B U S T E R
-     (> <)     your local-first assistant
-               brought to you by buildly.io
+    /\_/\
+   ( o.o )   B U S T E R
+    > ^ <    your local-first assistant
+             Buildly.io - Build Smarter, Not Harder
 
 RABBIT
 

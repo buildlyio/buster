@@ -614,6 +614,90 @@ def docs(path: str = typer.Argument(".", help="Repository path")):
     console.print(f"[dim]engine: {svc.engine}[/]")
 
 
+@app.command()
+def scaffold(
+    module_name: str = typer.Argument(..., help="Module/service name, e.g. 'Inventory Service'"),
+    models: str = typer.Option("", "--models", "-m", help="Comma-separated model names"),
+    out: str = typer.Option("", "--out", "-o", help="Output directory (default: ./<slug>)"),
+    no_docker: bool = typer.Option(False, "--no-docker", help="Skip the Dockerfile"),
+    force: bool = typer.Option(False, "--force", help="Write into a non-empty directory"),
+):
+    """Scaffold a runnable FastAPI + SQLAlchemy Buildly module with CRUD routes."""
+    import re
+
+    from buster.scaffold import ScaffoldPlan, scaffold_fastapi_module
+
+    model_list = [m.strip() for m in models.split(",") if m.strip()]
+    slug = re.sub(r"[^a-z0-9]+", "-", module_name.lower()).strip("-") or "module"
+    out_dir = _os.path.abspath(_os.path.expanduser(out or f"./{slug}"))
+    plan = ScaffoldPlan(module_name=module_name, models=model_list,
+                        output_dir=out_dir, include_docker=not no_docker)
+    try:
+        res = scaffold_fastapi_module(plan, force=force)
+    except FileExistsError as exc:
+        console.print(f"[red]{exc}[/]")
+        return
+    console.print(Panel(
+        f"[green]✓ Scaffolded {module_name}[/]\n"
+        f"Location: {res.output_dir}\n"
+        f"Models: {', '.join(res.models)}\n"
+        f"Files: {', '.join(res.files_written)}\n\n"
+        f"[dim]Run:[/] cd {res.output_dir} && pip install -r requirements.txt && sh run.sh\n"
+        f"[dim]Then open http://localhost:8000/docs[/]",
+        title="Buildly module"))
+
+
+forge_app = typer.Typer(help="Buildly Forge marketplace apps")
+app.add_typer(forge_app, name="forge")
+
+
+@forge_app.command("new")
+def forge_new(
+    name: str = typer.Argument(..., help="App name"),
+    description: str = typer.Option("", "--description", "-d"),
+    category: str = typer.Option("starter", "--category", "-c"),
+    out: str = typer.Option("", "--out", "-o", help="Output dir (default: ./<slug>)"),
+):
+    """Create a new Buildly Forge app skeleton (marketplace structure + manifest)."""
+    import re
+
+    from buster.scaffold import new_forge_app
+
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "app"
+    out_dir = _os.path.abspath(_os.path.expanduser(out or f"./{slug}"))
+    try:
+        res = new_forge_app(out_dir, name, description, category)
+    except FileExistsError as exc:
+        console.print(f"[red]{exc}[/]")
+        return
+    console.print(Panel(
+        f"[green]✓ Created Forge app '{name}'[/]\n"
+        f"Location: {res.output_dir}\n"
+        f"Files: {', '.join(res.files_written)}\n\n"
+        f"[dim]Next:[/] fill in BUILDLY.yaml, add screenshots, "
+        f"then 'buster scaffold' a service if you need one.",
+        title="Forge app"))
+
+
+@forge_app.command("adapt")
+def forge_adapt(
+    path: str = typer.Argument(".", help="Existing repository path"),
+    name: str = typer.Option("", "--name", "-n", help="App name (default: folder name)"),
+    description: str = typer.Option("", "--description", "-d"),
+    category: str = typer.Option("starter", "--category", "-c"),
+):
+    """Add Forge/marketplace structure to an EXISTING repo (additive; never
+    modifies application code)."""
+    from buster.scaffold import adapt_to_marketplace
+
+    root = _os.path.abspath(_os.path.expanduser(path))
+    res = adapt_to_marketplace(root, name or _os.path.basename(root), description, category)
+    console.print(f"[green]✓[/] Added: {', '.join(res.files_written) or '(nothing — all present)'}")
+    if res.files_skipped:
+        console.print(f"[dim]Left untouched (already present): {', '.join(res.files_skipped)}[/]")
+    console.print("[dim]No application files were modified. Fill in BUILDLY.yaml to finish.[/]")
+
+
 prompts_app = typer.Typer(help="Prompt library")
 app.add_typer(prompts_app, name="prompts")
 

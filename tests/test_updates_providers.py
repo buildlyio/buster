@@ -85,7 +85,7 @@ def test_ascii_rabbit_is_pure_ascii():
     # The CLI art must be pure ASCII so it renders in any terminal.
     art.RABBIT.encode("ascii")
     art.RABBIT_LARGE.encode("ascii")
-    assert "buildly.io" in art.TAGLINE
+    assert "buildly" in art.TAGLINE.lower()
 
 
 def test_onboarding_default_prefers_provider_with_models():
