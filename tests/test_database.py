@@ -1,9 +1,12 @@
 from buster.database import get_database
+from buster.database.migrations import MIGRATIONS
+
+LATEST = MIGRATIONS[-1][0]
 
 
 def test_migrations_apply():
     db = get_database()
-    assert db.schema_version == 1
+    assert db.schema_version == LATEST
 
 
 def test_tables_exist():
@@ -12,14 +15,14 @@ def test_tables_exist():
     names = {r["name"] for r in rows}
     for t in ("workspaces", "conversations", "messages", "tasks", "reports",
               "sources", "memories", "alerts", "actions", "services", "nodes",
-              "runtimes", "prompt_records", "cache_entries", "audit_log"):
+              "runtimes", "runtime_runs", "prompt_records", "cache_entries", "audit_log"):
         assert t in names, f"missing table {t}"
 
 
 def test_migrate_idempotent():
     db = get_database()
-    assert db.migrate() == 1
-    assert db.migrate() == 1  # re-running does nothing
+    assert db.migrate() == LATEST
+    assert db.migrate() == LATEST  # re-running does nothing
 
 
 def test_write_read():

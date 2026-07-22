@@ -272,14 +272,55 @@ function drawGraph(graph) {
 
 // ---- agents (runtimes) ----
 async function renderAgents(panel) {
-  const data = await api("/runtimes");
+  const [data, runsData] = await Promise.all([api("/runtimes"), api("/runtimes/runs")]);
   panel.innerHTML = `<div class="card"><h3>Agent runtimes</h3><div class="grid">` +
     data.runtimes.map(r => `<div class="card">
       <strong>${esc(r.name)}</strong> <span class="pill">${esc(r.status)}</span>
       <div class="muted">type: ${esc(r.runtime_type)} · via ${esc(r.detected_via)}</div>
       <div class="muted">caps: ${esc((r.capabilities || []).join(", ") || "—")}</div>
-      <div class="muted">task submission: ${r.task_submission_enabled ? "enabled" : "disabled"}</div>
-    </div>`).join("") + `</div></div>`;
+      <div class="composer" style="margin-top:8px">
+        <input type="text" placeholder="Delegate a task…" data-rt="${esc(r.id)}">
+        <button data-submit="${esc(r.id)}">Submit</button>
+      </div>
+      <div class="muted" data-out="${esc(r.id)}"></div>
+    </div>`).join("") + `</div></div>
+    <div class="card"><h3>Recent runs</h3>${runsData.runs.length ?
+      `<table><tr><th>Run</th><th>Runtime</th><th>Status</th><th>Data left machine</th></tr>` +
+      runsData.runs.map(r => `<tr><td>${esc(r.run_id)}</td><td>${esc(r.runtime_id)}</td>
+        <td><span class="pill ${r.status === "completed" ? "ok" : r.status === "failed" ? "crit" : ""}">${esc(r.status)}</span></td>
+        <td>${r.external_data_shared ? "yes" : "no"}</td></tr>`).join("") + `</table>` :
+      `<div class="muted">No delegated runs yet.</div>`}</div>`;
+
+  panel.querySelectorAll("button[data-submit]").forEach(b => b.onclick = async () => {
+    const id = b.dataset.submit;
+    const input = panel.querySelector(`input[data-rt="${id}"]`);
+    const out = panel.querySelector(`div[data-out="${id}"]`);
+    const prompt = input.value.trim(); if (!prompt) return;
+    out.textContent = "Submitting…";
+    try {
+      // Real runtimes need an approved permission first.
+      const rs = await api(`/runtimes/${id}/request-submission`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }) });
+      let permission_id = null;
+      if (rs.permission_required) {
+        if (!confirm("This is a real external runtime (risk level 2). Approve sending this task to it?")) {
+          out.textContent = "Cancelled."; return;
+        }
+        permission_id = rs.permission_id;
+        await api(`/permissions/${permission_id}/decide`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ approved: true }) });
+      }
+      const run = await api(`/runtimes/${id}/submit`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, permission_id }) });
+      out.innerHTML = `<div class="pill ${run.status === "completed" ? "ok" : "crit"}">${esc(run.status)}</div> ` +
+        esc(run.output || run.error) +
+        `<div class="muted">data left machine: ${run.external_data_shared ? "yes" : "no"}</div>`;
+      renderAgents($("#panel"));
+    } catch (e) { out.textContent = "Error: " + e.message; }
+  });
 }
 
 // ---- tools ----

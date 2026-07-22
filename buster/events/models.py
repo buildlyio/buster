@@ -39,6 +39,12 @@ class EventType(str, Enum):
     SERVICE_DISCOVERED = "service.discovered"
     NODE_DISCOVERED = "node.discovered"
     RUNTIME_DISCOVERED = "runtime.discovered"
+    # delegated runtime task lifecycle (normalized from external runtimes)
+    RUNTIME_TASK_STARTED = "runtime.task.started"
+    RUNTIME_TASK_PROGRESS = "runtime.task.progress"
+    RUNTIME_TASK_COMPLETED = "runtime.task.completed"
+    RUNTIME_TASK_FAILED = "runtime.task.failed"
+    RUNTIME_TASK_CANCELLED = "runtime.task.cancelled"
     # streaming chat token deltas (content only, never reasoning)
     MESSAGE_DELTA = "message.delta"
     MESSAGE_COMPLETED = "message.completed"

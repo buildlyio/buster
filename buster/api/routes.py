@@ -325,6 +325,77 @@ async def runtimes() -> dict:
     return {"runtimes": [r.model_dump() for r in await detect_runtimes()]}
 
 
+class RuntimeTrustRequest(BaseModel):
+    trust: str
+
+
+@router.post("/runtimes/{runtime_id}/trust")
+async def trust_runtime(runtime_id: str, req: RuntimeTrustRequest) -> dict:
+    from buster.database import get_database
+
+    get_database().execute("UPDATE runtimes SET trust = ? WHERE id = ?", (req.trust, runtime_id))
+    return {"ok": True}
+
+
+class RuntimeSubmitRequest(BaseModel):
+    prompt: str
+    timeout_s: int = 120
+    # For a REAL external runtime, an approved permission id is required.
+    permission_id: str | None = None
+
+
+@router.post("/runtimes/{runtime_id}/submit")
+async def submit_runtime_task(runtime_id: str, req: RuntimeSubmitRequest) -> dict:
+    from buster.runtimes import RuntimeSubmissionError, RuntimeTask, get_runtime_service
+
+    svc = get_runtime_service()
+    task = RuntimeTask(prompt=req.prompt, timeout_s=req.timeout_s)
+
+    # Real runtimes require an approved risk-2 permission.
+    if svc.is_real(runtime_id):
+        if not req.permission_id:
+            raise HTTPException(428, "This runtime requires an approved permission "
+                                     "(POST /runtimes/{id}/request-submission first).")
+        perm = get_permissions().get(req.permission_id)
+        if not perm or perm.status != "approved":
+            raise HTTPException(403, "Submission permission is not approved.")
+
+    try:
+        run = await svc.submit(runtime_id, task)
+    except RuntimeSubmissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    return run.model_dump()
+
+
+@router.post("/runtimes/{runtime_id}/request-submission")
+async def request_runtime_submission(runtime_id: str, req: RuntimeSubmitRequest) -> dict:
+    """Create the risk-2 permission needed to submit to a REAL runtime."""
+    from buster.runtimes import RuntimeTask, get_runtime_service
+
+    svc = get_runtime_service()
+    if not svc.is_real(runtime_id):
+        return {"permission_required": False}
+    perm = await svc.request_submission(runtime_id, RuntimeTask(prompt=req.prompt))
+    return {"permission_required": True, "permission_id": perm.id if perm else None}
+
+
+@router.get("/runtimes/runs")
+async def runtime_runs(runtime_id: str | None = None) -> dict:
+    from buster.runtimes import get_runtime_service
+
+    return {"runs": get_runtime_service().list_runs(runtime_id)}
+
+
+@router.get("/runtimes/runs/{run_id}")
+async def runtime_run(run_id: str) -> dict:
+    from buster.runtimes import get_runtime_service
+
+    run = get_runtime_service().get_run(run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    return run
+
+
 # -- prompts -------------------------------------------------------------------
 
 @router.get("/prompts")

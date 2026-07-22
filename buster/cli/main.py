@@ -402,6 +402,89 @@ def _print_nodes_services(nodes: list[dict], services: list[dict]):
         console.print("[dim]Nothing discovered. Configure service URLs in config, or run 'buster network discover'.[/]")
 
 
+runtimes_app = typer.Typer(help="Agent runtimes (Buster, Hermes, OpenClaw, ...)")
+app.add_typer(runtimes_app, name="runtimes")
+
+
+@runtimes_app.callback(invoke_without_command=True)
+def runtimes_main(ctx: typer.Context):
+    """List detected agent runtimes (default)."""
+    if ctx.invoked_subcommand is not None:
+        return
+    from buster.runtimes import detect_runtimes
+
+    infos = asyncio.run(detect_runtimes())
+    table = Table(title="Agent runtimes")
+    table.add_column("ID"); table.add_column("Name"); table.add_column("Type")
+    table.add_column("Status"); table.add_column("Via"); table.add_column("Tasks")
+    for r in infos:
+        table.add_row(r.id, r.name, r.runtime_type, r.status.value, r.detected_via,
+                      "on" if r.task_submission_enabled else "off")
+    console.print(table)
+
+
+@runtimes_app.command("submit")
+def runtimes_submit(
+    runtime_id: str,
+    prompt: str,
+    timeout: int = typer.Option(120, help="Task timeout in seconds"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Approve submission to a real runtime"),
+):
+    """Submit a bounded task to a runtime. Real runtimes require approval.
+
+    A delegated result is DATA ONLY — it never triggers a Buster action.
+    """
+    from buster.runtimes import RuntimeSubmissionError, RuntimeTask, get_runtime_service
+
+    svc = get_runtime_service()
+    task = RuntimeTask(prompt=prompt, timeout_s=timeout)
+
+    if svc.is_real(runtime_id):
+        console.print(f"[yellow]'{runtime_id}' is a real external runtime.[/] "
+                      "Submitting sends this task to it (risk level 2).")
+        if not yes and not typer.confirm("Approve submission?", default=False):
+            console.print("[dim]Cancelled.[/]")
+            return
+        # Record an approved permission for the audit trail.
+        perm = asyncio.run(svc.request_submission(runtime_id, task))
+        if perm:
+            asyncio.run(get_permissions_decide(perm.id))
+
+    try:
+        run = asyncio.run(svc.submit(runtime_id, task))
+    except RuntimeSubmissionError as exc:
+        console.print(f"[red]Blocked:[/] {exc}")
+        return
+    console.print(Panel(run.output or run.error or "(no output)",
+                        title=f"{run.executing_runtime} · {run.status.value}"))
+    console.print(f"[dim]run {run.run_id} · {run.inference_location} · "
+                  f"data left machine: {'yes' if run.external_data_shared else 'no'}[/]")
+
+
+@runtimes_app.command("runs")
+def runtimes_runs(runtime_id: str = typer.Option(None, help="Filter by runtime id")):
+    """List recent delegated runs."""
+    from buster.runtimes import get_runtime_service
+
+    runs = get_runtime_service().list_runs(runtime_id)
+    if not runs:
+        console.print("[dim]No runs yet.[/]")
+        return
+    table = Table(title="Runtime runs")
+    table.add_column("Run"); table.add_column("Runtime"); table.add_column("Status")
+    table.add_column("When")
+    for r in runs:
+        table.add_row(r["run_id"], r["runtime_id"], r["status"],
+                      (r["created_at"] or "").replace("T", " "))
+    console.print(table)
+
+
+async def get_permissions_decide(permission_id: str) -> None:
+    from buster.permissions import get_permissions
+
+    await get_permissions().decide(permission_id, approved=True, decided_by="cli")
+
+
 prompts_app = typer.Typer(help="Prompt library")
 app.add_typer(prompts_app, name="prompts")
 

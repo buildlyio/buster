@@ -323,6 +323,27 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(timestamp);
 """
 
+# --- v2: delegated runtime runs (Phase 2 task routing) ----------------------
+
+_V2 = """
+CREATE TABLE IF NOT EXISTS runtime_runs (
+    run_id              TEXT PRIMARY KEY,
+    runtime_id          TEXT NOT NULL,
+    runtime_type        TEXT NOT NULL DEFAULT '',
+    status              TEXT NOT NULL DEFAULT 'queued',
+    prompt              TEXT NOT NULL DEFAULT '',
+    output              TEXT NOT NULL DEFAULT '',
+    error               TEXT NOT NULL DEFAULT '',
+    model               TEXT NOT NULL DEFAULT '',
+    inference_location  TEXT NOT NULL DEFAULT 'unknown',
+    external_data_shared INTEGER NOT NULL DEFAULT 0,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_runtime_runs ON runtime_runs(runtime_id, created_at);
+"""
+
 MIGRATIONS: list[tuple[int, str]] = [
     (1, _V1),
+    (2, _V2),
 ]
