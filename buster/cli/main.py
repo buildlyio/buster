@@ -504,6 +504,116 @@ async def get_permissions_decide(permission_id: str) -> None:
     await get_permissions().decide(permission_id, approved=True, decided_by="cli")
 
 
+# ----------------------------------------------------------------------------
+# Buildly dev workflow (P2.2 Phase 1)
+# ----------------------------------------------------------------------------
+
+import os as _os  # noqa: E402
+
+
+def _dev_svc():
+    from buster.buildly.devservice_mock import get_dev_service
+
+    return get_dev_service()
+
+
+@app.command()
+def adopt(
+    path: str = typer.Argument(".", help="Repository path"),
+    review: bool = typer.Option(False, "--review", help="Show the last adoption report"),
+):
+    """Run a non-destructive adoption scan (or --review the last one).
+
+    The scan is observation-only: it never modifies your application files. It
+    writes drafts under .buildly/adoption/ and devdocs/generated/.
+    """
+    path = _os.path.abspath(_os.path.expanduser(path))
+    svc = _dev_svc()
+    if review:
+        report = asyncio.run(svc.get_adoption_report(path))
+        if not report:
+            console.print("[yellow]No adoption report yet.[/] Run [bold]buster adopt[/] first.")
+            return
+    else:
+        with console.status("Scanning (observation-only)…"):
+            report = asyncio.run(svc.scan_repository(path))
+        console.print(f"[green]✓[/] Scan complete [dim](engine: {report.engine}; "
+                      "no application files modified)[/]")
+        console.print(f"[dim]Wrote: {', '.join(report.output_dirs)}[/]")
+
+    inv = report.inventory
+    table = Table(title="Inventory")
+    table.add_column("Category"); table.add_column("Count")
+    for label, vals in [("frameworks", inv.frameworks), ("languages", inv.languages),
+                        ("api routes", inv.api_routes), ("models", inv.models_schemas),
+                        ("tests", inv.tests), ("migrations", inv.migrations),
+                        ("docs", inv.existing_docs), ("build/deploy", inv.build_deploy)]:
+        table.add_row(label, str(len(vals)) if not isinstance(vals, list) or len(vals) != 1
+                      else vals[0] if label in ("frameworks", "languages") else str(len(vals)))
+    console.print(table)
+
+    if report.proposed_features:
+        console.print("\n[bold]Proposed features[/] [dim](inferred — not approved)[/]")
+        for f in report.proposed_features:
+            console.print(f"  • {f.name} — {f.description} [{f.status.value}]")
+    console.print("\n[bold]Statements[/]")
+    for s in report.statements:
+        color = {"observed": "green", "inferred": "yellow", "unresolved": "dim",
+                 "contradictory": "red", "approved": "cyan"}.get(s.status.value, "white")
+        console.print(f"  [{color}]{s.status.value}[/] · {s.confidence.value} — {s.text}")
+    console.print("\n[dim]Review/approve in the web UI (Adoption Report) — inferred items "
+                  "never become product truth automatically.[/]")
+
+
+buildly_app = typer.Typer(help="Buildly product/repository binding")
+app.add_typer(buildly_app, name="buildly")
+
+
+@buildly_app.command("status")
+def buildly_status(path: str = typer.Argument(".", help="Repository path")):
+    """Show repository + Buildly binding + offline/sync status."""
+    path = _os.path.abspath(_os.path.expanduser(path))
+    svc = _dev_svc()
+    ctx = asyncio.run(svc.inspect_repository(path))
+    binding = asyncio.run(svc.get_binding(path))
+    sync = asyncio.run(svc.get_sync_status(path))
+
+    t = Table(show_header=False, box=None)
+    t.add_row("Path", ctx.path)
+    t.add_row("Git", "yes" if ctx.is_git else "no")
+    t.add_row("Branch", ctx.current_branch or "-")
+    t.add_row("Framework", ctx.framework or "(unknown)")
+    t.add_row("Languages", ", ".join(ctx.languages) or "-")
+    t.add_row("Topology", ctx.topology)
+    t.add_row("Buildly binding", f"[green]{binding.product_name}[/]" if binding.bound
+              else "[yellow]local only[/]")
+    t.add_row("Labs", "[green]connected[/]" if sync.connected else "[yellow]offline[/] "
+              "[dim](local features still work)[/]")
+    if sync.pending:
+        t.add_row("Pending sync events", str(sync.pending))
+    console.print(Panel(t, title="Buildly status"))
+
+
+@buildly_app.command("connect")
+def buildly_connect(product_id: str, path: str = typer.Argument(".", help="Repository path")):
+    """Bind this repository to a Buildly product (writes .buildly/project.yaml)."""
+    path = _os.path.abspath(_os.path.expanduser(path))
+    binding = asyncio.run(_dev_svc().connect_product(path, product_id))
+    console.print(f"[green]✓[/] Bound to {binding.product_name} ({binding.product_id}).")
+
+
+@app.command()
+def docs(path: str = typer.Argument(".", help="Repository path")):
+    """Generate product documentation + architecture diagrams (drafts)."""
+    path = _os.path.abspath(_os.path.expanduser(path))
+    svc = _dev_svc()
+    d = asyncio.run(svc.generate_documentation(path))
+    g = asyncio.run(svc.generate_diagrams(path))
+    console.print(f"[green]✓[/] Docs: {', '.join(d)}")
+    console.print(f"[green]✓[/] Diagrams: {', '.join(g)}")
+    console.print(f"[dim]engine: {svc.engine}[/]")
+
+
 prompts_app = typer.Typer(help="Prompt library")
 app.add_typer(prompts_app, name="prompts")
 

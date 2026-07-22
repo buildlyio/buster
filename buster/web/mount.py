@@ -28,6 +28,7 @@ _SECTIONS = [
     ("memory", "Memory"),
     ("nodes", "Nodes"),
     ("agents", "Agents"),
+    ("dev", "Dev"),
     ("tools", "Tools"),
     ("prompts", "Prompts"),
     ("settings", "Settings"),

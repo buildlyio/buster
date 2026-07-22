@@ -436,6 +436,74 @@ async def buildly_opportunities() -> dict:
     return {"opportunities": [o.model_dump() for o in await adapter.opportunities()]}
 
 
+# -- Buildly dev workflow (P2.2 Phase 1) --------------------------------------
+# Buster is the coordinator: it inspects the repo locally, shows binding/offline
+# status, launches the (mock) adoption scan, and renders reports. Engines belong
+# to bb-agent-manager. Labs is never required for local operation.
+
+class RepoRequest(BaseModel):
+    path: str
+
+
+@router.post("/dev/inspect")
+async def dev_inspect(req: RepoRequest) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    svc = get_dev_service()
+    ctx = await svc.inspect_repository(req.path)
+    binding = await svc.get_binding(req.path)
+    sync = await svc.get_sync_status(req.path)
+    return {"repository": ctx.model_dump(), "binding": binding.model_dump(),
+            "sync": sync.model_dump(), "engine": svc.engine}
+
+
+class ConnectRequest(BaseModel):
+    path: str
+    product_id: str
+
+
+@router.post("/dev/connect")
+async def dev_connect(req: ConnectRequest) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    binding = await get_dev_service().connect_product(req.path, req.product_id)
+    return binding.model_dump()
+
+
+@router.post("/dev/scan")
+async def dev_scan(req: RepoRequest) -> dict:
+    """Run the observation-only adoption scan. Never modifies application files."""
+    from buster.buildly.devservice_mock import get_dev_service
+    from buster.events import Event, EventType, get_event_bus
+
+    svc = get_dev_service()
+    await get_event_bus().publish(Event(type=EventType.RESEARCH_STARTED,
+                                        title=f"Adoption scan: {req.path}",
+                                        metadata={"engine": svc.engine}))
+    report = await svc.scan_repository(req.path)
+    return report.model_dump()
+
+
+@router.get("/dev/adoption")
+async def dev_adoption(path: str) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    report = await get_dev_service().get_adoption_report(path)
+    if report is None:
+        raise HTTPException(404, "No adoption report yet — run a scan first.")
+    return report.model_dump()
+
+
+@router.post("/dev/docs")
+async def dev_docs(req: RepoRequest) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    svc = get_dev_service()
+    docs = await svc.generate_documentation(req.path)
+    diagrams = await svc.generate_diagrams(req.path)
+    return {"docs": docs, "diagrams": diagrams, "engine": svc.engine}
+
+
 # -- personality / config ------------------------------------------------------
 
 @router.get("/personality")

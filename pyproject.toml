@@ -24,6 +24,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "zeroconf>=0.131",
     "selectolax>=0.3.21",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

@@ -67,6 +67,7 @@ const sections = {
   memory: renderMemory,
   nodes: renderNodes,
   agents: renderAgents,
+  dev: renderDev,
   tools: renderTools,
   prompts: renderPrompts,
   settings: renderSettings,
@@ -321,6 +322,99 @@ async function renderAgents(panel) {
       renderAgents($("#panel"));
     } catch (e) { out.textContent = "Error: " + e.message; }
   });
+}
+
+// ---- dev workflow (Buildly AI-Native) ----
+let devRepoPath = localStorage.getItem("buster.devRepo") || "";
+async function renderDev(panel) {
+  panel.innerHTML = `
+    <div class="card"><h3>Repository</h3>
+      <div class="composer">
+        <input type="text" id="devpath" placeholder="/path/to/your/repo" value="${esc(devRepoPath)}">
+        <button id="devinspect">Inspect</button>
+      </div>
+      <div id="devrepo" class="muted" style="margin-top:8px">Enter a repository path to begin.</div>
+    </div>
+    <div class="card" id="devactions" style="display:none">
+      <h3>Actions</h3>
+      <div class="row">
+        <button id="devscan">Adopt (scan)</button>
+        <button class="secondary" id="devdocs">Generate docs + diagrams</button>
+      </div>
+      <div class="muted" style="margin-top:6px">The adoption scan is observation-only —
+        it never modifies your application files.</div>
+    </div>
+    <div class="card" id="devreport" style="display:none"></div>`;
+
+  const doInspect = async () => {
+    const path = $("#devpath").value.trim(); if (!path) return;
+    devRepoPath = path; localStorage.setItem("buster.devRepo", path);
+    $("#devrepo").textContent = "Inspecting…";
+    try {
+      const r = await api("/dev/inspect", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) });
+      const c = r.repository, b = r.binding, s = r.sync;
+      $("#devrepo").innerHTML =
+        `<table>
+          <tr><td>Git</td><td>${c.is_git ? "yes ("+esc(c.current_branch||"?")+")" : "no"}</td></tr>
+          <tr><td>Framework</td><td>${esc(c.framework || "(unknown)")}</td></tr>
+          <tr><td>Languages</td><td>${esc((c.languages||[]).join(", ") || "-")}</td></tr>
+          <tr><td>Topology</td><td>${esc(c.topology)}</td></tr>
+          <tr><td>Buildly</td><td>${b.bound ? '<span class="pill ok">'+esc(b.product_name)+'</span>' :
+            '<span class="pill warn">local only</span>'}</td></tr>
+          <tr><td>Labs</td><td>${s.connected ? '<span class="pill ok">connected</span>' :
+            '<span class="pill warn">offline</span> <span class="muted">(local features still work)</span>'}</td></tr>
+        </table>`;
+      $("#devactions").style.display = "block";
+    } catch (e) { $("#devrepo").textContent = "Error: " + e.message; }
+  };
+  $("#devinspect").onclick = doInspect;
+  $("#devpath").addEventListener("keydown", e => { if (e.key === "Enter") doInspect(); });
+
+  $("#devscan").onclick = async () => {
+    const path = $("#devpath").value.trim(); if (!path) return;
+    const rv = $("#devreport"); rv.style.display = "block";
+    rv.innerHTML = "<div class='muted'>Scanning (observation-only)…</div>";
+    try {
+      const r = await api("/dev/scan", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) });
+      renderAdoption(rv, r);
+    } catch (e) { rv.innerHTML = "Error: " + esc(e.message); }
+  };
+  $("#devdocs").onclick = async () => {
+    const path = $("#devpath").value.trim(); if (!path) return;
+    const r = await api("/dev/docs", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) });
+    alert("Generated:\n" + [...r.docs, ...r.diagrams].join("\n"));
+  };
+
+  if (devRepoPath) doInspect();
+}
+
+function renderAdoption(el, r) {
+  const statusPill = s => {
+    const cls = { observed: "ok", inferred: "warn", contradictory: "crit" }[s] || "";
+    return `<span class="pill ${cls}">${esc(s)}</span>`;
+  };
+  const inv = r.inventory || {};
+  const counts = [["frameworks", inv.frameworks], ["languages", inv.languages],
+    ["api routes", inv.api_routes], ["models", inv.models_schemas],
+    ["tests", inv.tests], ["migrations", inv.migrations],
+    ["docs", inv.existing_docs], ["build/deploy", inv.build_deploy]];
+  el.innerHTML =
+    `<h3>Adoption report <span class="muted">engine: ${esc(r.engine)} · no app files modified</span></h3>
+     <table><tr><th>Category</th><th></th></tr>` +
+     counts.map(([k, v]) => `<tr><td>${k}</td><td>${(v||[]).length ?
+       (["frameworks","languages"].includes(k) ? esc((v||[]).join(", ")) : (v||[]).length) : "-"}</td></tr>`).join("") +
+     `</table>
+     <h4>Proposed features <span class="muted">(inferred — not approved)</span></h4>` +
+     ((r.proposed_features||[]).map(f => `<div class="row">${statusPill(f.status)} <strong>${esc(f.name)}</strong> — ${esc(f.description)}</div>`).join("") || "<div class='muted'>none</div>") +
+     `<h4>Statements</h4>` +
+     (r.statements||[]).map(s => `<div class="row">${statusPill(s.status)} <span class="muted">${esc(s.confidence)}</span> ${esc(s.text)}` +
+       (s.sources && s.sources.length ? ` <span class="muted">(${esc(s.sources[0].file)})</span>` : "") +
+       `</div>`).join("") +
+     `<div class="muted" style="margin-top:8px">Approvals turn inferred items into contracts —
+       coming in the next phase. Inferred items never become product truth automatically.</div>`;
 }
 
 // ---- tools ----
