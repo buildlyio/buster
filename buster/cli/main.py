@@ -602,6 +602,194 @@ def buildly_connect(product_id: str, path: str = typer.Argument(".", help="Repos
     console.print(f"[green]✓[/] Bound to {binding.product_name} ({binding.product_id}).")
 
 
+# ----------------------------------------------------------------------------
+# Labs (via bb-agent-manager MCP)
+# ----------------------------------------------------------------------------
+
+labs_app = typer.Typer(help="Buildly Labs (via the bb-agent-manager MCP server)")
+app.add_typer(labs_app, name="labs")
+
+
+def _mcp():
+    from buster.buildly.mcp_client import get_mcp_client
+
+    return get_mcp_client()
+
+
+@labs_app.command("status")
+def labs_status():
+    """Show the bb-agent-manager connection and real Labs auth state."""
+    from buster.buildly.mcp_client import LabsAuthState
+
+    client = _mcp()
+    if not client.available:
+        console.print("[yellow]No bb-agent-manager configured.[/] Set a hosted endpoint "
+                      "with [bold]buster labs connect <url>[/] (e.g. http://bespin.home:8000/sse), "
+                      "or install the local 'buildly-mcp'.")
+        return
+    t = Table(show_header=False, box=None)
+    t.add_row("MCP transport", client.target.transport.value)
+    t.add_row("MCP target", client.target.detail)
+    with console.status("Checking Labs auth…"):
+        state = asyncio.run(client.auth_state())
+    label = {
+        LabsAuthState.OK: "[green]connected & authenticated[/]",
+        LabsAuthState.UNAUTHENTICATED: "[yellow]not logged in[/] — run 'buster labs login'",
+        LabsAuthState.TOKEN_INVALID: "[red]token invalid/expired[/] — run 'buster labs login'",
+        LabsAuthState.UNREACHABLE: "[red]MCP server unreachable[/]",
+    }[state]
+    t.add_row("Labs auth", label)
+    console.print(Panel(t, title="Buildly Labs"))
+
+
+@labs_app.command("connect")
+def labs_connect(url: str = typer.Argument(..., help="Hosted MCP SSE URL, e.g. http://bespin.home:8000/sse")):
+    """Point Buster at a hosted bb-agent-manager MCP server."""
+    from buster.config import load_config, save_config
+
+    cfg = load_config()
+    cfg.buildly.mcp_url = url
+    cfg.buildly.workspace_enabled = True
+    cfg.buildly.mode = "hosted_mcp"
+    save_config(cfg)
+    console.print(f"[green]✓[/] bb-agent-manager set to {url}. Try [bold]buster labs status[/].")
+
+
+@labs_app.command("login")
+def labs_login(
+    token: str = typer.Option("", "--token", help="Manual API token (else OAuth browser flow)"),
+):
+    """Log in to Labs via bb-agent-manager (OAuth URL, or a manual token)."""
+    client = _mcp()
+    if not client.available:
+        console.print("[yellow]No bb-agent-manager configured.[/] Run 'buster labs connect <url>' first.")
+        return
+    res = asyncio.run(client.login(token or None))
+    # OAuth path returns a URL to open; manual-token path confirms storage.
+    url = res.get("authorize_url") if isinstance(res, dict) else None
+    if url:
+        console.print(f"Open this URL to authorize, then re-run [bold]buster labs status[/]:\n  {url}")
+    else:
+        console.print(f"[green]✓[/] {res.get('message', res)}")
+
+
+@labs_app.command("products")
+def labs_products():
+    """List your Buildly Labs products."""
+    client = _mcp()
+    if not client.available:
+        console.print("[yellow]No bb-agent-manager configured.[/]")
+        return
+    try:
+        products = asyncio.run(client.products())
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[red]Error:[/] {exc}")
+        return
+    if not products:
+        console.print("[dim]No products (or not authenticated — 'buster labs status').[/]")
+        return
+    table = Table(title="Labs products")
+    table.add_column("ID"); table.add_column("Name")
+    for p in products:
+        table.add_row(str(p.get("id") or p.get("uuid") or "?"), str(p.get("name") or ""))
+    console.print(table)
+
+
+@labs_app.command("issues")
+def labs_issues(
+    product_id: str = typer.Option("", "--product", help="Filter by product id"),
+    status: str = typer.Option("", "--status", help="Filter by status"),
+):
+    """List Labs issues (optionally filtered by product/status)."""
+    client = _mcp()
+    if not client.available:
+        console.print("[yellow]No bb-agent-manager configured.[/]")
+        return
+    try:
+        issues = asyncio.run(client.issues(product_id or None, status or None))
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[red]Error:[/] {exc}")
+        return
+    if not issues:
+        console.print("[dim]No issues found.[/]")
+        return
+    table = Table(title="Labs issues")
+    table.add_column("ID"); table.add_column("Name"); table.add_column("Status")
+    for i in issues:
+        table.add_row(str(i.get("id") or i.get("uuid") or "?"),
+                      str(i.get("name") or i.get("title") or ""), str(i.get("status") or ""))
+    console.print(table)
+
+
+@labs_app.command("associate")
+def labs_associate(path: str = typer.Argument(".", help="Repository path")):
+    """Suggest a Labs product for this repo and bind it (with confirmation).
+
+    Nothing is written to Labs or .buildly/project.yaml without your explicit yes.
+    """
+    from buster.buildly.associate import suggest_matches, write_binding
+
+    client = _mcp()
+    if not client.available:
+        console.print("[yellow]No bb-agent-manager configured.[/] Run 'buster labs connect <url>' first.")
+        return
+    repo = _os.path.abspath(_os.path.expanduser(path))
+    try:
+        products = asyncio.run(client.products())
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[red]Error:[/] {exc}")
+        return
+
+    matches = suggest_matches(repo, products)
+    console.print(f"Repository: [bold]{_os.path.basename(repo)}[/]")
+    if matches:
+        table = Table(title="Suggested Labs products")
+        table.add_column("#"); table.add_column("Product"); table.add_column("Why")
+        for idx, m in enumerate(matches, 1):
+            table.add_row(str(idx), m.product_name, m.reason)
+        console.print(table)
+        console.print("Choose a number to bind, [bold]n[/] to create a new Labs product, "
+                      "or [bold]s[/] to skip.")
+        choice = typer.prompt("Choose", default="1" if matches else "s")
+    else:
+        console.print("[yellow]No products to match against.[/]")
+        choice = typer.prompt("Create a [n]ew Labs product or [s]kip?", default="n")
+
+    if choice.lower() == "s":
+        console.print("[dim]Skipped. No changes made.[/]")
+        return
+    if choice.lower() == "n":
+        name = typer.prompt("New product name", default=_os.path.basename(repo))
+        if not typer.confirm(f"Create Labs product '{name}' and bind this repo?", default=True):
+            console.print("[dim]Cancelled.[/]")
+            return
+        try:
+            res = asyncio.run(client.create_product(name))
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[red]Create failed:[/] {exc}")
+            return
+        data = res.get("data", res) if isinstance(res, dict) else {}
+        pid = str(data.get("id") or data.get("uuid") or "")
+        if not pid:
+            console.print(f"[yellow]Product create returned no id (create tools may not be "
+                          f"deployed on this server yet): {res}[/]")
+            return
+        write_binding(repo, pid, name)
+        console.print(f"[green]✓[/] Created and bound to {name} ({pid}).")
+        return
+    try:
+        m = matches[int(choice) - 1]
+    except (ValueError, IndexError):
+        console.print("[red]Invalid choice.[/]")
+        return
+    if not typer.confirm(f"Bind this repo to '{m.product_name}'?", default=True):
+        console.print("[dim]Cancelled.[/]")
+        return
+    write_binding(repo, m.product_id, m.product_name)
+    console.print(f"[green]✓[/] Bound to {m.product_name} ({m.product_id}). "
+                  "Wrote .buildly/project.yaml.")
+
+
 @app.command()
 def docs(path: str = typer.Argument(".", help="Repository path")):
     """Generate product documentation + architecture diagrams (drafts)."""

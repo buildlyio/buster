@@ -99,7 +99,12 @@ class DiscoveryConfig(BaseModel):
 class BuildlyConfig(BaseModel):
     workspace_enabled: bool = False
     mode: Literal["none", "local_mcp", "hosted_mcp", "account"] = "none"
+    # Hosted bb-agent-manager MCP endpoint (SSE), e.g. http://bespin.home:8000/sse.
+    # When set, Buster prefers this; otherwise it launches the local buildly-mcp
+    # over stdio. Discovery can also fill this in from an LCDP/mDNS match.
     mcp_url: str = ""
+    # Command to launch the local bb-agent-manager over stdio (fallback).
+    mcp_local_command: str = "buildly-mcp"
     account_email: str = ""
 
 

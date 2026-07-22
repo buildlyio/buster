@@ -436,6 +436,40 @@ async def buildly_opportunities() -> dict:
     return {"opportunities": [o.model_dump() for o in await adapter.opportunities()]}
 
 
+# -- Buildly Labs (via bb-agent-manager MCP) ----------------------------------
+
+@router.get("/labs/status")
+async def labs_status() -> dict:
+    from buster.buildly.mcp_client import get_mcp_client
+
+    client = get_mcp_client()
+    if not client.available:
+        return {"available": False}
+    state = await client.auth_state()
+    return {"available": True, "transport": client.target.transport.value,
+            "target": client.target.detail, "auth_state": state.value}
+
+
+@router.get("/labs/products")
+async def labs_products() -> dict:
+    from buster.buildly.mcp_client import get_mcp_client
+
+    client = get_mcp_client()
+    if not client.available:
+        raise HTTPException(400, "No bb-agent-manager configured.")
+    return {"products": await client.products()}
+
+
+@router.get("/labs/issues")
+async def labs_issues(product_id: str | None = None, status: str | None = None) -> dict:
+    from buster.buildly.mcp_client import get_mcp_client
+
+    client = get_mcp_client()
+    if not client.available:
+        raise HTTPException(400, "No bb-agent-manager configured.")
+    return {"issues": await client.issues(product_id, status)}
+
+
 # -- Buildly dev workflow (P2.2 Phase 1) --------------------------------------
 # Buster is the coordinator: it inspects the repo locally, shows binding/offline
 # status, launches the (mock) adoption scan, and renders reports. Engines belong
