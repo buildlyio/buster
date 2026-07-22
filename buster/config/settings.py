@@ -110,6 +110,7 @@ class PersonalityConfig(BaseModel):
         "technical_partner",
         "research_companion",
         "household_assistant",
+        "developer",
     ] = "friendly_guide"
     learning_enabled: bool = False
 

@@ -29,7 +29,6 @@ def run_provider_onboarding(console: Console) -> None:
 
     # A local provider that's running but has no models isn't usable yet — call
     # that out and steer toward a LAN scan (models may live on another host).
-    local_usable = [p for p in local if p.models]
     local_empty = [p for p in local if not p.models]
     for p in local_empty:
         console.print(f"[yellow]Found {p.kind} on this device but it has no models "
@@ -89,6 +88,37 @@ def run_provider_onboarding(console: Console) -> None:
 
     config.onboarding.completed = True
     save_config(config)
+
+    _maybe_offer_developer_profile(console)
+
+
+def _maybe_offer_developer_profile(console: Console) -> None:
+    """If Buildly/dev tools are present, offer to switch to the developer
+    profile (which tunes Buster as a development assistant)."""
+    from buster.buildly.devtools import (
+        buildly_tool_count,
+        detect_dev_tools,
+        should_offer_developer_profile,
+    )
+
+    tools = detect_dev_tools()
+    if not should_offer_developer_profile(tools):
+        return
+
+    present = [t.name for t in tools if t.present]
+    n_buildly = buildly_tool_count(tools)
+    console.print(
+        f"\n[cyan]This looks like a developer machine[/] "
+        f"({', '.join(present[:5])}{'…' if len(present) > 5 else ''})."
+    )
+    if n_buildly:
+        console.print(f"Detected {n_buildly} Buildly tool(s).")
+    if Confirm.ask("Set Buster up as a development assistant?", default=bool(n_buildly)):
+        from buster.personality import get_personality
+
+        get_personality().set_profile("developer", reason="onboarding: dev tools detected")
+        console.print("[green]✓[/] Developer profile enabled. "
+                      "Buster will favor code, repos, and Buildly tools.")
 
 
 def _apply_detected(config, p) -> None:

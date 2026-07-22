@@ -45,6 +45,24 @@ def build_context(query: str, memory_limit: int = 5) -> ContextBundle:
     preamble = get_personality().system_preamble()
     capability = _capability_context()
     categories = ["personality", "capabilities"]
+
+    # In developer mode, tell the model which dev/Buildly tools are on this box.
+    dev_note = ""
+    try:
+        from buster.personality import get_personality as _gp
+
+        if _gp().current_profile() == "developer":
+            from buster.buildly.devtools import detect_dev_tools
+
+            present = [t.name for t in detect_dev_tools() if t.present]
+            if present:
+                dev_note = ("\n\nDeveloper mode: this machine has "
+                            + ", ".join(present)
+                            + ". Prefer concrete code/CLI/repo steps. For coding tasks you "
+                            "can suggest routing to bb-code or a coder model.")
+                categories.append("developer")
+    except Exception:  # noqa: BLE001
+        pass
     snippets: list[str] = []
     try:
         hits = get_memory().search(query, limit=memory_limit)
@@ -57,7 +75,7 @@ def build_context(query: str, memory_limit: int = 5) -> ContextBundle:
         pass
 
     # Capability context is part of the system preamble so the model always sees it.
-    full_preamble = f"{preamble}\n\n{capability}"
+    full_preamble = f"{preamble}\n\n{capability}{dev_note}"
     text = full_preamble + "\n".join(snippets)
     return ContextBundle(
         system_preamble=full_preamble,

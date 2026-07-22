@@ -26,6 +26,10 @@ _PROFILE_STYLES = {
     "technical_partner": "Peer-level technical tone; precise, assumes competence.",
     "research_companion": "Thoughtful and source-aware; careful about evidence and claims.",
     "household_assistant": "Approachable and helpful for everyday home tasks.",
+    "developer": ("Development assistant. Peer-level and precise; assumes a "
+                  "software engineer. Favors concrete steps, code, and repo/CLI "
+                  "context. Aware of Buildly tools (bb-code, bb-agent-manager) "
+                  "and can route coding tasks to them or a coder model."),
 }
 
 _STYLE_RULES = (

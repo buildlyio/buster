@@ -133,3 +133,37 @@ def test_static_detection_is_cached():
     a = _static_detection()
     b = _static_detection()
     assert a is b  # lru_cache returns the same object
+
+
+def test_dev_tool_detection_and_offer(monkeypatch):
+    import shutil as _sh
+
+    from buster.buildly import devtools
+
+    # Simulate a dev machine: git + editor + bb-code present.
+    present = {"git", "code", "bb-code"}
+    monkeypatch.setattr(devtools.shutil, "which",
+                        lambda n: f"/usr/bin/{n}" if n in present else None)
+    tools = devtools.detect_dev_tools()
+    assert devtools.dev_signal_count(tools) >= 1
+    assert devtools.should_offer_developer_profile(tools) is True
+
+
+def test_no_dev_offer_on_bare_machine(monkeypatch):
+    from buster.buildly import devtools
+
+    monkeypatch.setattr(devtools.shutil, "which", lambda n: None)
+    # Also avoid the ~/Projects/buildly signal.
+    monkeypatch.setattr(devtools.Path, "home", staticmethod(lambda: devtools.Path("/nonexistent-xyz")))
+    tools = devtools.detect_dev_tools()
+    assert devtools.should_offer_developer_profile(tools) is False
+
+
+def test_developer_profile_exists():
+    from buster.personality import get_personality
+
+    svc = get_personality()
+    assert "developer" in svc.profiles()
+    svc.set_profile("developer", reason="test")
+    assert svc.current_profile() == "developer"
+    svc.set_profile("friendly_guide", reason="reset")
