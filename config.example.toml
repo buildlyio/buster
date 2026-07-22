@@ -15,12 +15,23 @@ advertise_alias = true    # also answer to the bare <domain> ("whichever node")
 
 [inference]
 policy = "local_first_ask_external"   # local_only | local_first_ask_external | local_first_auto_lan | no_restriction
-default_provider = "ollama"
+default_provider = "ollama"             # ollama | lmstudio | remote
 default_model = ""                      # e.g. "gemma3:latest"; blank = auto-pick
 ollama_url = "http://127.0.0.1:11434"
 lan_ollama_urls = []                    # e.g. ["http://alderaan.home:11434"]
+lmstudio_urls = []                      # OpenAI-compatible, incl. /v1 — e.g. ["http://127.0.0.1:1234/v1"]
 max_steps = 8
 tool_timeout_seconds = 30
+
+# Gated remote provider (OFF by default). When enabled AND policy = "no_restriction",
+# Buster may send prompts to this OpenAI-compatible endpoint — data LEAVES your
+# network and every such response is labelled + audited. Use only endpoints you trust.
+[inference.remote]
+enabled = false
+name = "remote"
+base_url = ""                           # e.g. a self-hosted TGI/vLLM, or Hugging Face inference endpoint
+api_key = ""                            # redacted from logs/prompts/reports
+model = ""
 
 [cache]
 memory_limit_mb = 64

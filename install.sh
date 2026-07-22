@@ -9,6 +9,16 @@ say() { printf "${BLUE}==>${NC} %s\n" "$1"; }
 ok()  { printf "${GREEN}✓${NC} %s\n" "$1"; }
 warn(){ printf "${YELLOW}!${NC} %s\n" "$1"; }
 
+# Buster is a rabbit. Brought to you by buildly.io.
+cat <<'RABBIT'
+
+     (\_/)
+     (o.o)     B U S T E R
+     (> <)     your local-first assistant
+               brought to you by buildly.io
+
+RABBIT
+
 # 1. Detect OS + arch --------------------------------------------------------
 OS="$(uname -s)"; ARCH="$(uname -m)"
 case "$OS" in
@@ -17,6 +27,26 @@ case "$OS" in
   *) echo "Unsupported OS: $OS (macOS and Linux only)"; exit 1 ;;
 esac
 say "Detected $PLATFORM ($ARCH)"
+
+# 1b. Existing install? Offer update / replace / cancel ---------------------
+EXISTING_VENV="$HOME/.buster/venv"
+if [ -d "$EXISTING_VENV" ]; then
+  CUR="$("$EXISTING_VENV/bin/python" -c 'import buster; print(buster.__version__)' 2>/dev/null || echo "unknown")"
+  warn "Buster is already installed (version $CUR)."
+  if [ -t 0 ]; then
+    printf "  [u]pdate in place, [r]eplace (fresh venv), or [c]ancel? [u/r/c] "
+    read -r REPLY </dev/tty
+  else
+    # Non-interactive (piped from curl): default to update in place.
+    REPLY="u"
+    say "Non-interactive install; updating in place."
+  fi
+  case "$REPLY" in
+    r|R) say "Replacing existing install"; rm -rf "$EXISTING_VENV" ;;
+    c|C) echo "Cancelled."; exit 0 ;;
+    *)   say "Updating existing install in place" ;;
+  esac
+fi
 
 # 2. Locate a source checkout or clone --------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo "")"

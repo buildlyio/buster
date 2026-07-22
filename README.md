@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🐶 Buster
+# 🐰 Buster
 
 **A lightweight, hardware-adaptive, local-first assistant for research, reporting,
 machine diagnostics, network monitoring, and safe action — from [Buildly](https://buildly.io).**
@@ -111,9 +111,9 @@ flowchart TB
         SCHED["Scheduler + alerts"]
     end
     subgraph Providers
-        OLLAMA_L["Ollama (this device)"]
-        OLLAMA_LAN["Ollama (trusted LAN)"]
-        REMOTE["Remote provider<br/>(interface only, Phase 2)"]
+        LOCAL["Ollama / LM Studio<br/>(this device)"]
+        LANP["Ollama / LM Studio<br/>(trusted LAN)"]
+        REMOTE["Remote / OpenAI-compatible<br/>(opt-in, off-network)"]
     end
     DB[("SQLite (WAL)<br/>+ Markdown + files")]
 
@@ -121,9 +121,9 @@ flowchart TB
     WEB --> API
     API --> AGENT --> ROUTER
     AGENT --> TOOLS
-    ROUTER --> OLLAMA_L
-    ROUTER -.->|fallback, if allowed| OLLAMA_LAN
-    ROUTER -.->|Phase 2| REMOTE
+    ROUTER --> LOCAL
+    ROUTER -.->|fallback, if allowed| LANP
+    ROUTER -.->|only if policy permits| REMOTE
     Core --> DB
 ```
 
@@ -177,7 +177,7 @@ Full module map: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | **Web** | FastAPI + Uvicorn + Jinja2 + HTMX (self-contained, no Node on target) |
 | **CLI** | Typer + Rich |
 | **Storage** | SQLite (WAL, single controlled writer) + FTS5, Markdown, filesystem |
-| **Inference** | Ollama (device + LAN); provider protocol for future backends |
+| **Inference** | Ollama + LM Studio (device + LAN); gated remote/OpenAI-compatible (opt-in) |
 | **Discovery** | LCDP manifest + mDNS/zeroconf |
 | **Service** | `launchd` user agent (macOS) / `systemd --user` (Linux), no root |
 | **Size** | ~94 Python modules · 19 tools in 10 packs · 8 skills |

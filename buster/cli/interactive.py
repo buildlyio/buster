@@ -12,6 +12,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from buster import __version__
+from buster.cli import art
 from buster.cli import service as svc
 from buster.config import load_config
 
@@ -44,13 +45,32 @@ def _banner(console: Console) -> None:
             system = {"ok": "Healthy", "warning": "Degraded", "critical": "Problems"}.get(doc["status"], "Unknown")
     except Exception:  # noqa: BLE001
         pass
-    console.print(Panel(
-        f"[bold]Buster[/] {__version__}\n"
+    body = (
+        f"{art.RABBIT_LARGE.strip(chr(10))}\n\n"
+        f"[bold]Buster[/] {__version__}   [dim]{art.TAGLINE}[/]\n"
         f"Local model: [cyan]{model}[/]\n"
         f"System: {system}\n"
         f"Trusted nodes: {nodes}\n"
-        f"[dim]Inference policy: {config.inference.policy} · type /help[/]",
-        title="🐶 Buster"))
+        f"[dim]Inference policy: {config.inference.policy} · type /help[/]"
+    )
+    console.print(Panel(body, title="Buster", border_style="cyan"))
+
+
+def _notify_update(console: Console) -> None:
+    """Non-blocking-ish update notice on launch (short timeout, cached)."""
+    try:
+        import asyncio
+
+        from buster.updates import check_for_update
+
+        info = asyncio.run(check_for_update())
+        if info.get("available"):
+            console.print(
+                f"[yellow]Update available:[/] {info['current']} → "
+                f"[bold]{info['latest']}[/]  ·  run [bold]buster update[/]\n"
+            )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def run_interactive(console: Console) -> None:
@@ -59,7 +79,19 @@ def run_interactive(console: Console) -> None:
         console.print("[dim]Offline commands like /doctor, /system, /network still work.[/]\n")
 
     _banner(console)
+    _notify_update(console)
     config = load_config()
+
+    # First-run: offer provider onboarding if it hasn't been completed and no
+    # model is configured yet.
+    if not config.onboarding.completed and not config.inference.default_model:
+        from rich.prompt import Confirm
+
+        if Confirm.ask("No model provider is set up yet. Configure one now?", default=True):
+            from buster.cli.onboarding import run_provider_onboarding
+
+            run_provider_onboarding(console)
+            config = load_config()
 
     while True:
         try:

@@ -118,14 +118,57 @@ def open():
 
 
 @app.command()
-def update():
-    """Update Buster (reinstall from the source checkout)."""
-    import subprocess
-    import sys
+def setup():
+    """Detect and choose a model provider (Ollama / LM Studio / remote)."""
+    from buster.cli.onboarding import run_provider_onboarding
 
-    console.print("Updating Buster…")
-    subprocess.run([sys.executable, "-m", "pip", "install", "-e", "."], check=False)
-    console.print("[green]✓[/] Update attempted. Run [bold]buster restart[/] to apply.")
+    run_provider_onboarding(console)
+
+
+@app.command(name="check-update")
+def check_update():
+    """Check whether a newer Buster release is available on GitHub."""
+    from buster.updates import check_for_update
+
+    info = asyncio.run(check_for_update(force=True))
+    if info["latest"] is None:
+        console.print("[yellow]Could not reach GitHub to check for updates.[/]")
+    elif info["available"]:
+        console.print(f"[green]Update available:[/] {info['current']} → [bold]{info['latest']}[/]")
+        console.print("Run [bold]buster update[/] to install it.")
+    else:
+        console.print(f"[green]Buster is up to date[/] ({info['current']}).")
+
+
+@app.command()
+def update(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Update without confirmation"),
+):
+    """Update Buster to the latest release by re-running the installer."""
+    import subprocess
+
+    from buster.updates import check_for_update
+
+    info = asyncio.run(check_for_update(force=True))
+    if info["latest"] and not info["available"]:
+        console.print(f"[green]Already up to date[/] ({info['current']}).")
+        if not yes and not typer.confirm("Re-run the installer anyway?", default=False):
+            return
+    elif info["available"]:
+        console.print(f"Update available: {info['current']} → [bold]{info['latest']}[/]")
+
+    if not yes and not typer.confirm("Download and install the update now?", default=True):
+        console.print("[dim]Cancelled.[/]")
+        return
+
+    console.print("Updating Buster via the installer…")
+    # Re-run the official installer, which clones/pulls latest and reinstalls.
+    cmd = "curl -fsSL https://install.buster.buildly.io | sh"
+    rc = subprocess.run(cmd, shell=True).returncode
+    if rc == 0:
+        console.print("[green]✓[/] Update complete. Run [bold]buster restart[/] to apply.")
+    else:
+        console.print("[red]Update failed.[/] Try re-running: " + cmd)
 
 
 @app.command()

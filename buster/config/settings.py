@@ -52,13 +52,31 @@ class ServerConfig(BaseModel):
     advertise_alias: bool = True
 
 
+class RemoteProviderConfig(BaseModel):
+    """A user-configured remote / OpenAI-compatible endpoint (opt-in).
+
+    Using this sends prompts OFF the local network — Buster labels every such
+    response and only routes here when policy allows external inference.
+    """
+
+    enabled: bool = False
+    name: str = "remote"
+    base_url: str = ""          # e.g. https://api-inference.huggingface.co/... or a self-hosted URL
+    api_key: str = ""           # kept out of logs/prompts/reports (redacted)
+    model: str = ""
+
+
 class InferenceConfig(BaseModel):
     policy: InferencePolicy = "local_first_ask_external"
-    default_provider: str = "ollama"
+    default_provider: str = "ollama"       # ollama | lmstudio | remote
     default_model: str = ""
     ollama_url: str = "http://127.0.0.1:11434"
     # Manually configured trusted LAN Ollama endpoints.
     lan_ollama_urls: list[str] = Field(default_factory=list)
+    # LM Studio / OpenAI-compatible endpoints (device or LAN), base URLs incl. /v1.
+    lmstudio_urls: list[str] = Field(default_factory=list)
+    # Gated remote provider (off by default; sends data off-network when used).
+    remote: RemoteProviderConfig = Field(default_factory=RemoteProviderConfig)
     # Max agent loop steps.
     max_steps: int = 8
     tool_timeout_seconds: int = 30
