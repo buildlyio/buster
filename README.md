@@ -344,6 +344,7 @@ Details: [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Documentation
 
+- [Getting started](docs/GETTING_STARTED.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Security model](docs/SECURITY.md)
 - [LCDP specification draft](docs/LCDP.md)

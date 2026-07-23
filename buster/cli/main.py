@@ -50,9 +50,28 @@ def _require_service() -> bool:
 
 @app.command()
 def start():
-    """Start the Buster background service."""
+    """Start the Buster background service and report when it's ready."""
     ok, msg = svc.start()
-    console.print(f"[green]✓[/] {msg}" if ok else f"[red]✕[/] {msg}")
+    s = svc.status()
+    if s["api_reachable"]:
+        cfg = load_config()
+        try:
+            from buster.discovery import naming
+
+            host = naming.primary_name()
+        except Exception:  # noqa: BLE001
+            host = "buster.local"
+        console.print(Panel(
+            f"[green]✓ Buster is ready.[/]\n"
+            f"API:  {cfg.base_url}/api\n"
+            f"Web:  http://{host}:{cfg.server.port}  ·  http://localhost:{cfg.server.port}\n"
+            f"[dim]buster            open the assistant\n"
+            f"buster open       open the web UI\n"
+            f"buster guide      getting-started walkthrough[/]",
+            title="Started", border_style="green"))
+    else:
+        console.print(f"[yellow]![/] {msg} "
+                      "[dim]API not responding yet — check 'buster logs' / 'buster doctor'.[/]")
 
 
 @app.command()
@@ -115,6 +134,14 @@ def open():
     config = load_config()
     webbrowser.open(config.base_url)
     console.print(f"Opening {config.base_url}")
+
+
+@app.command()
+def guide():
+    """Show the getting-started walkthrough."""
+    from buster.cli.guide import print_guide
+
+    print_guide(console)
 
 
 @app.command()

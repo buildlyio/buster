@@ -184,6 +184,7 @@ CLI:       buster
 Web:       http://$NAME:$PORT
 Fallback:  http://localhost:$PORT
 Status:    buster status
+Guide:     buster guide
 
 Inference policy: Local first
 

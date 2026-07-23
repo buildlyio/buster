@@ -89,7 +89,35 @@ def run_provider_onboarding(console: Console) -> None:
     config.onboarding.completed = True
     save_config(config)
 
+    _verify_and_report(console, config)
     _maybe_offer_developer_profile(console)
+
+
+def _verify_and_report(console: Console, config) -> None:
+    """Confirm the chosen model actually responds, then show a success screen."""
+    from buster.models.verify import verify_model
+
+    with console.status("Checking the model responds…"):
+        check = asyncio.run(verify_model(config))
+
+    if check.ok:
+        shared = "yes" if check.external_data_shared else "no"
+        console.print(Panel(
+            f"[green]✓ AI connected and working.[/]\n"
+            f"Model: [cyan]{check.model}[/] · location: {check.location} · "
+            f"data leaves your network: {shared}\n\n"
+            f"[bold]Try it:[/]\n"
+            f"  buster ask \"summarize what you can do\"\n"
+            f"  buster research \"a topic you care about\"\n"
+            f"  buster guide          [dim]# the getting-started walkthrough[/]",
+            title="You're set up", border_style="green"))
+    else:
+        console.print(Panel(
+            f"[yellow]Provider selected, but the model didn't respond.[/]\n"
+            f"{check.detail}\n\n"
+            f"[dim]Fix and re-check with:[/] buster doctor · buster setup\n"
+            f"[dim]Deterministic features (diagnostics, discovery, memory) still work.[/]",
+            title="Not working yet", border_style="yellow"))
 
 
 def _maybe_offer_developer_profile(console: Console) -> None:

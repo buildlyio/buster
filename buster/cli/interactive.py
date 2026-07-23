@@ -18,6 +18,7 @@ from buster.config import load_config
 
 _HELP = """[bold]Slash commands[/]
   /help              show this help
+  /guide             getting-started walkthrough
   /system            run a system health check
   /network           run a network health check
   /research <topic>  run web research
@@ -35,23 +36,58 @@ def _banner(console: Console) -> None:
     model = "no model"
     system = "unknown"
     nodes = 0
+    api_up = False
     try:
         with httpx.Client(timeout=3.0) as c:
             st = c.get(f"{config.base_url}/api/status").json()
             model = st["models"][0]["name"] if st["models"] else "no model"
             nodes = st["trusted_nodes"]
+            api_up = True
         with httpx.Client(timeout=3.0) as c:
             doc = c.get(f"{config.base_url}/api/doctor").json()
-            system = {"ok": "Healthy", "warning": "Degraded", "critical": "Problems"}.get(doc["status"], "Unknown")
+            system = {"ok": "Healthy", "warning": "Degraded",
+                      "critical": "Problems"}.get(doc["status"], "Unknown")
     except Exception:  # noqa: BLE001
         pass
+
+    # Live endpoint broadcast.
+    try:
+        from buster.discovery import naming
+
+        web_host = naming.primary_name()
+    except Exception:  # noqa: BLE001
+        web_host = "buster.local"
+    port = config.server.port
+    if api_up:
+        api_line = f"API:    [green]up[/] {config.base_url}/api"
+        web_line = f"Web:    http://{web_host}:{port}  ·  http://localhost:{port}"
+    else:
+        api_line = "API:    [yellow]not running[/] — run [bold]buster start[/]"
+        web_line = "Web:    [dim](starts with the service)[/]"
+
+    # Confirm the model actually responds (fast; falls back gracefully).
+    model_line = f"Model:  [cyan]{model}[/]"
+    if api_up and model != "no model":
+        try:
+            import asyncio
+
+            from buster.models.verify import verify_model
+
+            check = asyncio.run(verify_model(config, timeout=8.0))
+            if check.ok:
+                shared = " · data leaves network" if check.external_data_shared else ""
+                model_line = f"Model:  [green]✓[/] [cyan]{check.model}[/] ({check.location}){shared}"
+            else:
+                model_line = f"Model:  [yellow]![/] {check.model or model} — {check.detail[:50]}"
+        except Exception:  # noqa: BLE001
+            pass
+
     body = (
         f"{art.RABBIT_LARGE.strip(chr(10))}\n\n"
         f"[bold]Buster[/] {__version__}   [dim]{art.TAGLINE}[/]\n"
-        f"Local model: [cyan]{model}[/]\n"
-        f"System: {system}\n"
-        f"Trusted nodes: {nodes}\n"
-        f"[dim]Inference policy: {config.inference.policy} · type /help[/]"
+        f"{api_line}\n{web_line}\n{model_line}\n"
+        f"System: {system}  ·  Trusted nodes: {nodes}\n"
+        f"[dim]Policy: {config.inference.policy} · type /help or /guide[/]"
     )
     console.print(Panel(body, title="Buster", border_style="cyan"))
 
@@ -133,6 +169,10 @@ def _handle_slash(console: Console, line: str, config) -> bool:
         return True
     if cmd == "help":
         console.print(_HELP)
+    elif cmd == "guide":
+        from buster.cli.guide import print_guide
+
+        print_guide(console)
     elif cmd == "doctor":
         import asyncio
 
