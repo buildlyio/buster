@@ -934,6 +934,97 @@ def _print_sync_status(status: dict):
     console.print(Panel(t, title="Sync status"))
 
 
+# ----------------------------------------------------------------------------
+# Developer setup: bb-code + tokenjam (P2.3)
+# ----------------------------------------------------------------------------
+
+dev_app = typer.Typer(help="Developer tooling (bb-code, TokenJam)")
+app.add_typer(dev_app, name="dev")
+
+
+@dev_app.callback(invoke_without_command=True)
+def dev_main(ctx: typer.Context):
+    """Show developer-tool status (default)."""
+    if ctx.invoked_subcommand is not None:
+        return
+    from buster.dev import dev_status
+
+    table = Table(title="Developer tools")
+    table.add_column("Tool"); table.add_column("Present"); table.add_column("Detail")
+    for t in dev_status():
+        detail = t.version or (t.install_cmd and "[dim]install: " + t.install_cmd + "[/]") or t.note
+        table.add_row(t.name, "[green]yes[/]" if t.present else "[yellow]no[/]", detail[:70])
+    console.print(table)
+
+
+@dev_app.command("setup")
+def dev_setup():
+    """Detect dev tools; register bb-code as a runtime; guide optional installs.
+
+    Buster never installs packages silently — it shows the exact command and
+    asks. TokenJam is read-only (Buster sends it nothing).
+    """
+    from buster.dev import dev_status
+    from buster.dev.setup import register_bb_code_runtime
+
+    statuses = {t.key: t for t in dev_status()}
+
+    # bb-code → register as a CLI runtime if present.
+    if statuses["bb_code"].present:
+        register_bb_code_runtime()
+        console.print("[green]✓[/] bb-code detected and registered as a runtime "
+                      "([bold]buster runtimes[/]).")
+    else:
+        console.print("[yellow]bb-code not found.[/] Local-first codegen (optional). Install with:")
+        console.print(f"  [bold]{statuses['bb_code'].install_cmd}[/]")
+        if typer.confirm("Show the install steps and continue?", default=False):
+            console.print("[dim]Run the command above yourself; Buster won't install it for you.[/]")
+
+    # tokenjam
+    tj = statuses["tokenjam"]
+    if tj.present:
+        console.print("[green]✓[/] TokenJam detected — 'buster dev tokens' for a read-only report.")
+    else:
+        console.print("[yellow]TokenJam not found.[/] Token-efficiency telemetry (optional). Install with:")
+        console.print(f"  [bold]{tj.install_cmd}[/]")
+    console.print(f"[dim]{__import__('buster.dev.setup', fromlist=['TOKENJAM_CREDIT']).TOKENJAM_CREDIT}[/]")
+
+    # Offer developer profile if this looks like a dev machine.
+    from buster.buildly.devtools import detect_dev_tools, should_offer_developer_profile
+
+    if should_offer_developer_profile(detect_dev_tools()):
+        from buster.personality import get_personality
+
+        if get_personality().current_profile() != "developer" and typer.confirm(
+            "Enable Buster's developer profile?", default=True
+        ):
+            get_personality().set_profile("developer", reason="dev setup")
+            console.print("[green]✓[/] Developer profile enabled.")
+
+
+@dev_app.command("tokens")
+def dev_tokens():
+    """Show TokenJam's local token-efficiency findings (read-only)."""
+    from buster.dev import tokenjam_summary
+
+    s = tokenjam_summary()
+    if not s.available:
+        console.print(f"[yellow]{s.note}[/]")
+        return
+    if s.findings:
+        table = Table(title="TokenJam findings")
+        table.add_column("#"); table.add_column("Finding")
+        for i, f in enumerate(s.findings[:20], 1):
+            text = f.get("title") or f.get("message") or f.get("recommendation") or str(f)
+            table.add_row(str(i), str(text)[:80])
+        console.print(table)
+    elif s.raw:
+        console.print(s.raw)
+    else:
+        console.print(f"[dim]{s.note}[/]")
+    console.print(f"[dim]{s.credit}[/]")
+
+
 forge_app = typer.Typer(help="Buildly Forge marketplace apps")
 app.add_typer(forge_app, name="forge")
 

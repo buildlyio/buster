@@ -47,12 +47,32 @@ class RuntimeService:
         return dict(r) if r else None
 
     def _adapter(self, runtime_id: str):
-        """Return a task-capable adapter, preferring a real CLI, else the mock."""
+        """Return a task-capable adapter, preferring a real CLI, else the mock.
+
+        CLI config comes from the runtime's manifest (executable/argv_template,
+        e.g. bb-code) if present, else the built-in _CLI map (hermes/openclaw).
+        """
+        import json as _json
+
         row = self._row(runtime_id)
         rtype = (row or {}).get("runtime_type", "")
         name = (row or {}).get("name", runtime_id)
-        if rtype in self._CLI:
+
+        exe = argv = None
+        # 1. manifest-defined CLI (bb-code and future manifest runtimes)
+        manifest = (row or {}).get("manifest")
+        if manifest:
+            try:
+                m = _json.loads(manifest)
+                if m.get("executable") and m.get("argv_template"):
+                    exe, argv = m["executable"], m["argv_template"]
+            except Exception:  # noqa: BLE001
+                pass
+        # 2. built-in per-type map
+        if exe is None and rtype in self._CLI:
             exe, argv = self._CLI[rtype]
+
+        if exe is not None:
             cli = CliRuntimeAdapter(id=runtime_id, name=name, executable=exe, argv_template=argv)
             if cli.available():
                 return cli

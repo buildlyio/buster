@@ -9,7 +9,7 @@ Status: design. Build order and scope agreed with the user:
 
 1. Buster → Hermes / OpenClaw task routing  ← **DONE (v2 schema)**
 2. bb-agent-manager (Buildly MCP) integration  ← DONE (Phase 1 + Phase 2)
-3. Developer setup: bb-code + tokenjam
+3. Developer setup: bb-code + tokenjam  ← DONE
 4. Hosted model providers (Claude / OpenAI)
 
 Cross-cutting rule (agreed): **all cloud inference — hosted Claude/OpenAI,
@@ -111,7 +111,7 @@ mcp_url = "http://localhost:PORT/mcp"   # or stdio launcher
 
 ---
 
-## 3. Developer setup: bb-code + tokenjam
+## 3. Developer setup: bb-code + tokenjam  ← DONE
 
 A guided `buster dev setup` that detects and (with permission) installs two
 independent, MIT/OSS developer tools. Buster **coexists** with them — never

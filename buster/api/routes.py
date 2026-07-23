@@ -590,6 +590,22 @@ async def dev_conflicts(path: str) -> dict:
                           for c in await get_dev_service().list_conflicts(path)]}
 
 
+# -- developer tooling (bb-code + tokenjam) -----------------------------------
+
+@router.get("/dev/tools")
+async def dev_tools() -> dict:
+    from buster.dev import dev_status
+
+    return {"tools": [t.model_dump() for t in dev_status()]}
+
+
+@router.get("/dev/tokens")
+async def dev_tokens() -> dict:
+    from buster.dev import tokenjam_summary
+
+    return tokenjam_summary().model_dump()
+
+
 # -- personality / config ------------------------------------------------------
 
 @router.get("/personality")
