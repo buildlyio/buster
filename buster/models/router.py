@@ -55,12 +55,22 @@ class ModelRouter:
                 self._lan.append(OpenAICompatibleProvider(url, location="lan", name="lmstudio"))
 
         # Gated remote provider (opt-in; sends data off-network).
+        # kind selects the shape: anthropic (Claude Messages API) vs an
+        # OpenAI-compatible endpoint (OpenAI, HF, TGI/vLLM, LM Studio remote).
         self._remote = None
-        if inf.remote.enabled and inf.remote.base_url:
-            self._remote = OpenAICompatibleProvider(
-                inf.remote.base_url, location="remote",
-                api_key=inf.remote.api_key, name=inf.remote.name or "remote",
-            )
+        if inf.remote.enabled:
+            if inf.remote.kind == "anthropic" and inf.remote.api_key:
+                from buster.models.anthropic import AnthropicProvider
+
+                self._remote = AnthropicProvider(
+                    api_key=inf.remote.api_key, base_url=inf.remote.base_url,
+                    location="remote",
+                )
+            elif inf.remote.base_url:
+                self._remote = OpenAICompatibleProvider(
+                    inf.remote.base_url, location="remote",
+                    api_key=inf.remote.api_key, name=inf.remote.name or "remote",
+                )
 
     async def local_provider(self) -> OllamaProvider:
         return self._local

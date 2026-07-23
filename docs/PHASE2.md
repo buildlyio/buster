@@ -10,7 +10,7 @@ Status: design. Build order and scope agreed with the user:
 1. Buster → Hermes / OpenClaw task routing  ← **DONE (v2 schema)**
 2. bb-agent-manager (Buildly MCP) integration  ← DONE (Phase 1 + Phase 2)
 3. Developer setup: bb-code + tokenjam  ← DONE
-4. Hosted model providers (Claude / OpenAI)
+4. Hosted model providers (Claude / OpenAI)  ← DONE
 
 Cross-cutting rule (agreed): **all cloud inference — hosted Claude/OpenAI,
 Hugging Face, remote endpoints — reuses the single gated-remote path.** Default
@@ -150,7 +150,7 @@ replaces or wraps them silently — and always credits them.
 
 ---
 
-## 4. Hosted model providers (Claude / OpenAI)
+## 4. Hosted model providers (Claude / OpenAI)  ← DONE
 
 Real Anthropic + OpenAI providers implementing the `ModelProvider` protocol,
 plugged into the **gated-remote** path (not a new consent mechanism).

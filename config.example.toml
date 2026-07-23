@@ -28,10 +28,15 @@ tool_timeout_seconds = 30
 # network and every such response is labelled + audited. Use only endpoints you trust.
 [inference.remote]
 enabled = false
+kind = "openai_compatible"              # openai_compatible | anthropic
 name = "remote"
-base_url = ""                           # e.g. a self-hosted TGI/vLLM, or Hugging Face inference endpoint
+base_url = ""                           # blank = provider default; or a self-hosted TGI/vLLM / HF endpoint
 api_key = ""                            # redacted from logs/prompts/reports
-model = ""
+model = ""                              # e.g. "gpt-4o" (openai_compatible) or "claude-sonnet-4-5" (anthropic)
+# Example — hosted Claude (only used when policy = "no_restriction"):
+#   kind = "anthropic"
+#   api_key = "sk-ant-..."
+#   model = "claude-sonnet-4-5"
 
 [cache]
 memory_limit_mb = 64

@@ -53,17 +53,20 @@ class ServerConfig(BaseModel):
 
 
 class RemoteProviderConfig(BaseModel):
-    """A user-configured remote / OpenAI-compatible endpoint (opt-in).
+    """A user-configured remote provider (opt-in).
 
     Using this sends prompts OFF the local network — Buster labels every such
     response and only routes here when policy allows external inference.
     """
 
     enabled: bool = False
+    # Provider shape. openai_compatible covers OpenAI, LM Studio remote, TGI/vLLM,
+    # Hugging Face; anthropic uses the Claude Messages API.
+    kind: Literal["openai_compatible", "anthropic"] = "openai_compatible"
     name: str = "remote"
-    base_url: str = ""          # e.g. https://api-inference.huggingface.co/... or a self-hosted URL
+    base_url: str = ""          # blank → provider default (OpenAI / Anthropic)
     api_key: str = ""           # kept out of logs/prompts/reports (redacted)
-    model: str = ""
+    model: str = ""             # e.g. "gpt-4o" or "claude-sonnet-4-5"
 
 
 class InferenceConfig(BaseModel):
