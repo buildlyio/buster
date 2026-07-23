@@ -48,6 +48,14 @@ async def run_quick_research(question: str, max_sources: int = 5) -> dict:
             findings.append(Finding(statement=item.snippet, support="single_source",
                                     sources=[src.id]))
 
+    # Synthesize proposed solutions + a one-click agent action (propose only).
+    from buster.reports.model import Recommendation
+    from buster.research.solutions import synthesize
+
+    solution_set = await synthesize(question, findings)
+    recommendations = [Recommendation(text=s.title, rationale=s.detail)
+                       for s in solution_set.solutions]
+
     store = get_report_store()
     report = Report(
         id=store.new_id(),
@@ -55,6 +63,7 @@ async def run_quick_research(question: str, max_sources: int = 5) -> dict:
         slug=slugify(question),
         summary=f"Collected {len(report_sources)} source(s) for: {question}",
         findings=findings,
+        recommendations=recommendations,
         sources=report_sources,
         notes="Sources were retrieved, not independently verified. Review before relying on claims.",
     )
@@ -68,4 +77,7 @@ async def run_quick_research(question: str, max_sources: int = 5) -> dict:
         "report_id": saved.id,
         "sources": len(report_sources),
         "title": report.title,
+        "solutions": [s.model_dump() for s in solution_set.solutions],
+        "action": solution_set.action.model_dump() if solution_set.action else None,
+        "solutions_engine": solution_set.engine,
     }

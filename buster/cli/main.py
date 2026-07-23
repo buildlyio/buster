@@ -266,14 +266,72 @@ def ask(question: str = typer.Argument(..., help="Question for Buster")):
 
 
 @app.command()
-def research(topic: str = typer.Argument(..., help="Research topic")):
-    """Run a web research task and save a local report."""
+def research(
+    topic: str = typer.Argument(..., help="Research topic"),
+    act: bool = typer.Option(False, "--act", help="Offer to launch an agent on the top solution"),
+):
+    """Research a topic, propose solutions, and (optionally) launch an agent."""
     if not _require_service():
         return
     with console.status("Researching…"):
         r = _api("/research", "POST", {"question": topic})
     console.print(f"[green]✓[/] {r['title']} — {r['sources']} source(s)")
     console.print(f"Report id: [bold]{r['report_id']}[/]  (buster report show {r['report_id']})")
+
+    solutions = r.get("solutions") or []
+    if solutions:
+        console.print("\n[bold]Proposed solutions[/] "
+                      f"[dim]({r.get('solutions_engine', 'deterministic')})[/]")
+        for i, s in enumerate(solutions, 1):
+            console.print(f"  {i}. [bold]{s['title']}[/]"
+                          + (f" — {s['detail']}" if s.get("detail") else ""))
+
+    action = r.get("action")
+    if not action:
+        return
+    console.print(f"\n[bold]Recommended:[/] {action['summary']}")
+    if not act:
+        console.print("[dim]Launch an agent to do it:  buster research \""
+                      f"{topic}\" --act[/]")
+        return
+
+    # Propose → one-click (one confirmation) to run. Offer where + when.
+    runtimes = action.get("runtime_options") or []
+    rec = action.get("recommended_runtime") or (runtimes[0] if runtimes else "")
+    console.print(f"\n[bold]Where[/] (runtime): {', '.join(runtimes) or '(none detected)'}")
+    runtime_id = typer.prompt("Run with which runtime?", default=rec) if runtimes else ""
+    if not runtime_id:
+        console.print("[yellow]No runtime available.[/] Try 'buster dev setup' or 'buster runtimes'.")
+        return
+    when = typer.prompt("When? [now/schedule/queue]", default="now")
+
+    from buster.runtimes import get_runtime_service
+
+    rsvc = get_runtime_service()
+    perm_id = None
+    if when == "now" and rsvc.is_real(runtime_id):
+        console.print(f"[yellow]'{runtime_id}' is a real external runtime (risk 2).[/]")
+        if not typer.confirm("Approve running it now?", default=False):
+            console.print("[dim]Cancelled.[/]")
+            return
+        from buster.runtimes import RuntimeTask
+
+        perm = asyncio.run(rsvc.request_submission(runtime_id, RuntimeTask(prompt="act")))
+        if perm:
+            asyncio.run(get_permissions_decide(perm.id))
+            perm_id = perm.id
+
+    with console.status(f"Launching {runtime_id}…"):
+        res = _api("/research/act", "POST", {
+            "prompt": action["prompt"], "runtime_id": runtime_id,
+            "when": when, "permission_id": perm_id})
+    if res.get("launched"):
+        run = res["run"]
+        console.print(f"[green]✓[/] {run['outcome']} — run {run['id']}")
+        if run.get("output"):
+            console.print(Panel(run["output"][:1500], title="Agent output (data only)"))
+    else:
+        console.print(f"[yellow]{res.get('note', 'Not launched.')}[/]")
 
 
 @app.command()

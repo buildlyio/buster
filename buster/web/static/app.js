@@ -122,6 +122,7 @@ async function renderResearch(panel) {
         <button id="rgo">Research</button>
       </div>
     </div>
+    <div class="card" id="rresult" style="display:none"></div>
     <div class="card"><h3>Projects</h3><div id="rlist"></div></div>`;
   const list = $("#rlist");
   list.innerHTML = data.projects.length ? data.projects.map(p =>
@@ -133,9 +134,58 @@ async function renderResearch(panel) {
     try {
       const r = await api("/research", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: q }) });
-      alert(`Report created: ${r.title} (${r.sources} sources)`);
-      load("research");
+      renderResearchResult($("#rresult"), r);
     } catch (e) { alert("Error: " + e.message); }
+    finally { $("#rgo").textContent = "Research"; $("#rgo").disabled = false; }
+  };
+}
+
+function renderResearchResult(el, r) {
+  el.style.display = "block";
+  const sols = (r.solutions || []).map((s, i) =>
+    `<li><strong>${esc(s.title)}</strong>${s.detail ? " — " + esc(s.detail) : ""}</li>`).join("");
+  const a = r.action;
+  let actionHtml = "";
+  if (a) {
+    const runtimes = (a.runtime_options || []);
+    actionHtml =
+      `<h4>Recommended action <span class="muted">(nothing runs until you launch it)</span></h4>
+       <div>${esc(a.summary)}</div>
+       <div class="row" style="margin-top:8px;align-items:center">
+         <label class="muted">Where <select id="ra-rt">${runtimes.map(x =>
+           `<option value="${esc(x)}" ${x === a.recommended_runtime ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label>
+         <label class="muted">When <select id="ra-when">${(a.when_options||["now"]).map(w =>
+           `<option>${esc(w)}</option>`).join("")}</select></label>
+         <button id="ra-go">Launch agent</button>
+       </div>
+       <div class="muted" id="ra-out" style="margin-top:6px"></div>`;
+  }
+  el.innerHTML =
+    `<h3>${esc(r.title)}</h3>
+     <div class="muted">${r.sources} source(s) · report <code>${esc(r.report_id)}</code>
+       · solutions: ${esc(r.solutions_engine || "deterministic")}</div>
+     <h4>Proposed solutions</h4><ul>${sols || "<li class='muted'>none</li>"}</ul>
+     ${actionHtml}`;
+
+  if (!a) return;
+  $("#ra-go").onclick = async () => {
+    const runtime = $("#ra-rt").value, when = $("#ra-when").value;
+    const out = $("#ra-out"); out.textContent = "Launching…";
+    try {
+      const res = await api("/research/act", { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: a.prompt, runtime_id: runtime, when }) });
+      if (res.launched) {
+        out.innerHTML = `<span class="pill ok">${esc(res.run.outcome)}</span> ` +
+          esc((res.run.output || "").slice(0, 300));
+      } else if (res.permission_required) {
+        out.innerHTML = `<span class="pill warn">approval needed</span> ` +
+          `'${esc(runtime)}' is a real runtime — use the CLI (buster research "…" --act) ` +
+          `to approve, or pick Buster-self.`;
+      } else {
+        out.innerHTML = `<span class="pill">${esc(res.when || "queued")}</span> ${esc(res.note || "")}`;
+      }
+    } catch (e) { out.textContent = "Error: " + e.message; }
   };
 }
 
@@ -152,7 +202,8 @@ async function renderReports(panel) {
     e.preventDefault();
     const r = await api("/reports/" + a.dataset.id);
     const v = $("#rview"); v.style.display = "block";
-    v.innerHTML = `<pre style="white-space:pre-wrap">${esc(r.markdown)}</pre>`;
+    // Server returns sanitized HTML (html=False render + href scrubbing).
+    v.innerHTML = `<div class="markdown">${r.html || ("<pre>" + esc(r.markdown) + "</pre>")}</div>`;
   });
 }
 

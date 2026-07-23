@@ -150,6 +150,46 @@ async def start_research(req: ResearchRequest) -> dict:
     return result
 
 
+class ResearchActRequest(BaseModel):
+    prompt: str
+    runtime_id: str
+    when: str = "now"                 # now | schedule | queue
+    permission_id: str | None = None
+
+
+@router.post("/research/act")
+async def research_act(req: ResearchActRequest) -> dict:
+    """Launch the recommended agent action from a research result (one-click).
+
+    Nothing runs without this explicit call. Real runtimes require an approved
+    risk-2 permission; results are data-only and never auto-trigger changes.
+    """
+    from buster.runtimes import RuntimeSubmissionError, RuntimeTask, get_runtime_service
+
+    svc = get_runtime_service()
+    if req.when != "now":
+        # "when": queue/schedule — record the intent as a pending task, don't run.
+        from buster.agent import get_task_store
+
+        task = get_task_store().create_task(kind="research_action",
+                                            title=req.prompt[:80])
+        return {"launched": False, "when": req.when, "task_id": task.id,
+                "note": f"Queued to run {req.when}. Nothing executed yet."}
+
+    if svc.is_real(req.runtime_id) and not (
+        req.permission_id and (p := get_permissions().get(req.permission_id))
+        and p.status == "approved"
+    ):
+        return {"launched": False, "permission_required": True,
+                "note": "This runtime needs an approved permission first."}
+
+    try:
+        run = await svc.submit(req.runtime_id, RuntimeTask(prompt=req.prompt))
+    except RuntimeSubmissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    return {"launched": True, "run": run.model_dump()}
+
+
 @router.get("/research")
 async def list_research() -> dict:
     return {"projects": [p.model_dump() for p in get_research_manager().list_projects()]}
@@ -164,11 +204,13 @@ async def reports() -> dict:
 
 @router.get("/reports/{report_id}")
 async def report_show(report_id: str) -> dict:
+    from buster.web.markdown_render import render_markdown
+
     md = get_report_store().get_markdown(report_id)
     meta = get_report_store().get_meta(report_id)
     if md is None:
         raise HTTPException(404, "Report not found")
-    return {"meta": meta, "markdown": md}
+    return {"meta": meta, "markdown": md, "html": render_markdown(md)}
 
 
 # -- diagnostics ---------------------------------------------------------------
