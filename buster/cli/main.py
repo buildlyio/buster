@@ -1025,6 +1025,93 @@ def dev_tokens():
     console.print(f"[dim]{s.credit}[/]")
 
 
+# ----------------------------------------------------------------------------
+# Dev workflow Phase 3: work → context → agent run → review
+# ----------------------------------------------------------------------------
+
+@app.command()
+def work(
+    issue: str = typer.Argument(..., help="Labs issue id, or a local issue title"),
+    path: str = typer.Option(".", "--path", help="Repository path"),
+    local: bool = typer.Option(False, "--local", help="Treat <issue> as a local issue title"),
+    run: str = typer.Option("", "--run", help="Run an agent (runtime id) on the context package"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Approve real-runtime submission"),
+):
+    """Start work on an issue: build a bounded context package, optionally run an agent.
+
+    The context package excludes secrets. Real external runtimes require approval;
+    agent results are data-only and never auto-trigger changes.
+    """
+    repo = _os.path.abspath(_os.path.expanduser(path))
+    svc = _dev_svc()
+
+    if local:
+        issue_dict = {"id": issue.lower().replace(" ", "-"), "title": issue, "source": "local"}
+    else:
+        issue_dict = {"id": issue, "title": issue, "source": "labs"}
+
+    res = asyncio.run(svc.start_work(repo, issue_dict))
+    pkg = res["context_package"]
+    console.print(Panel(
+        f"[bold]{res['issue']['title']}[/] ({res['issue']['id']})\n"
+        f"Context package: {pkg['id']}\n"
+        f"Files: {len(pkg['included_files'])} · ~{pkg['token_estimate']} tokens\n"
+        f"[dim]{pkg['excluded_note']}[/]",
+        title="Start Work"))
+    for f in pkg["included_files"][:15]:
+        console.print(f"  • {f}")
+
+    if not run:
+        console.print("\n[dim]Run an agent with:  buster work "
+                      f"{issue} --run <runtime-id>  (see 'buster runtimes')[/]")
+        return
+
+    from buster.runtimes import get_runtime_service
+
+    rsvc = get_runtime_service()
+    perm_id = None
+    if rsvc.is_real(run):
+        console.print(f"[yellow]'{run}' is a real external runtime[/] (risk level 2).")
+        if not yes and not typer.confirm("Approve running it on this context?", default=False):
+            console.print("[dim]Cancelled.[/]")
+            return
+        from buster.runtimes import RuntimeTask
+
+        perm = asyncio.run(rsvc.request_submission(run, RuntimeTask(prompt="work")))
+        if perm:
+            asyncio.run(get_permissions_decide(perm.id))
+            perm_id = perm.id
+
+    with console.status(f"Running {run}…"):
+        out = asyncio.run(svc.run_agent(repo, pkg["id"], run, permission_id=perm_id))
+    if "error" in out:
+        console.print(f"[red]{out['error']}[/]")
+        return
+    r = out["run"]
+    console.print(f"[green]✓[/] run {r['id']} — {r['outcome']}")
+    if out.get("output"):
+        console.print(Panel(out["output"][:1500], title="Agent output (data only)"))
+    console.print(f"[dim]Review with:  buster review {r['id']} --path {path}[/]")
+
+
+@app.command()
+def review(
+    run_id: str = typer.Argument(..., help="Agent run id from 'buster work'"),
+    path: str = typer.Option(".", "--path", help="Repository path"),
+):
+    """Review the change manifest for an agent run. Never auto-merges."""
+    repo = _os.path.abspath(_os.path.expanduser(path))
+    res = asyncio.run(_dev_svc().review_changes(repo, run_id))
+    m = res["manifest"]
+    console.print(Panel(
+        f"Run: {m['run_id']}\n"
+        f"Changed files: {len(m['changed_files'])}\n"
+        f"Tests: {', '.join(t['check'] + ('✓' if t['passed'] else '✕') for t in m['tests']) or '—'}\n"
+        f"Unresolved: {'; '.join(m['unresolved_questions']) or 'none'}",
+        title="Change review"))
+    console.print(f"[yellow]{res['note']}[/]")
+
+
 forge_app = typer.Typer(help="Buildly Forge marketplace apps")
 app.add_typer(forge_app, name="forge")
 

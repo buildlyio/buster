@@ -345,6 +345,84 @@ class MockBuildlyDevelopmentService:
         result = await journal.push(client, product_id=binding.product_id)
         return {"pushed": True, "result": result, "status": journal.status().model_dump()}
 
+    # -- Phase 3: work → context → agent run → review ------------------------
+
+    async def start_work(self, path: str, issue: dict) -> dict:
+        """Begin work on an issue: build + persist a bounded context package.
+
+        `issue` is a dict from a Labs backlog item or a local issue contract.
+        The context package excludes secrets and irrelevant dirs.
+        """
+        from buster.buildly.protocol import IssueContract
+        from buster.buildly.work import WorkStore, issue_from_labs
+
+        contract = (issue_from_labs(issue) if issue.get("source") == "labs"
+                    else IssueContract.model_validate(issue))
+        pkg = WorkStore(path).build_context_package(contract)
+        return {"issue": contract.model_dump(), "context_package": pkg.model_dump()}
+
+    async def run_agent(self, path: str, context_id: str, runtime_id: str,
+                        permission_id: str | None = None) -> dict:
+        """Run the selected agent on a context package via the GATED runtime path.
+
+        Real external runtimes require an approved risk-2 permission (P2.1). The
+        result is DATA ONLY and never auto-triggers a Buster action.
+        """
+        from buster.buildly.protocol import AgentRun
+        from buster.buildly.work import WorkStore
+        from buster.runtimes import RuntimeSubmissionError, RuntimeTask, get_runtime_service
+
+        store = WorkStore(path)
+        pkg = store.get_context_package(context_id)
+        if pkg is None:
+            return {"error": "unknown context package"}
+
+        svc = get_runtime_service()
+        if svc.is_real(runtime_id):
+            if not permission_id:
+                return {"error": "real runtime requires an approved permission",
+                        "permission_required": True}
+            from buster.permissions import get_permissions
+
+            perm = get_permissions().get(permission_id)
+            if not perm or perm.status != "approved":
+                return {"error": "submission permission not approved"}
+
+        prompt = (f"Work on issue {pkg.issue_id}: {pkg.summary}\n"
+                  f"Relevant files: {', '.join(pkg.included_files[:20])}\n"
+                  f"{pkg.excluded_note}")
+        run = AgentRun(id=_sid("run"), issue_id=pkg.issue_id, agent=runtime_id,
+                       context_package_id=pkg.id, prompt=prompt[:2000],
+                       started_at=_now(), outcome="running")
+        store.record_run(run)
+        try:
+            result = await svc.submit(runtime_id, RuntimeTask(prompt=prompt))
+            run.outcome = result.status.value
+            run.model = result.model
+            run.finished_at = _now()
+        except RuntimeSubmissionError as exc:
+            run.outcome = "failed"
+            run.finished_at = _now()
+            store.record_run(run)
+            return {"error": str(exc), "run": run.model_dump()}
+        store.record_run(run)
+        return {"run": run.model_dump(),
+                "output": getattr(result, "output", "")[:4000]}
+
+    async def review_changes(self, path: str, run_id: str) -> dict:
+        """Produce + persist a change manifest for human review (never auto-merge)."""
+        from buster.buildly.work import WorkStore
+
+        manifest = await self.create_change_manifest(path, run_id)
+        WorkStore(path).save_manifest(manifest)
+        return {"manifest": manifest.model_dump(),
+                "note": "Review required before preparing a draft PR. Buster never auto-merges."}
+
+    async def list_runs(self, path: str) -> list[dict]:
+        from buster.buildly.work import WorkStore
+
+        return WorkStore(path).list_runs()
+
 
 def get_dev_service() -> MockBuildlyDevelopmentService:
     """Return the active dev service. Phase 1 uses the mock; a real MCP-backed

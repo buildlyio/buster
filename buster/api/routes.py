@@ -606,6 +606,54 @@ async def dev_tokens() -> dict:
     return tokenjam_summary().model_dump()
 
 
+# -- dev workflow Phase 3: work → context → run → review ----------------------
+
+class StartWorkRequest(BaseModel):
+    path: str
+    issue: dict
+
+
+@router.post("/dev/work")
+async def dev_start_work(req: StartWorkRequest) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    return await get_dev_service().start_work(req.path, req.issue)
+
+
+class RunAgentRequest(BaseModel):
+    path: str
+    context_id: str
+    runtime_id: str
+    permission_id: str | None = None
+
+
+@router.post("/dev/run")
+async def dev_run_agent(req: RunAgentRequest) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    return await get_dev_service().run_agent(
+        req.path, req.context_id, req.runtime_id, permission_id=req.permission_id)
+
+
+@router.get("/dev/runs")
+async def dev_runs(path: str) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    return {"runs": await get_dev_service().list_runs(path)}
+
+
+class ReviewRequest(BaseModel):
+    path: str
+    run_id: str
+
+
+@router.post("/dev/review")
+async def dev_review(req: ReviewRequest) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    return await get_dev_service().review_changes(req.path, req.run_id)
+
+
 # -- personality / config ------------------------------------------------------
 
 @router.get("/personality")
