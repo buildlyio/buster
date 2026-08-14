@@ -19,6 +19,12 @@ from rich.table import Table
 from buster import __version__
 from buster.cli import service as svc
 from buster.config import load_config
+from buster.config.paths import get_paths
+from getpass import getpass
+from pathlib import Path
+from buster.secrets.manager import init_vault, open_vault
+from buster.secrets.keychain import available as keychain_available, set_vault_password, get_vault_password
+from buster.secrets.audit import log_event
 
 app = typer.Typer(help="Buster — local-first assistant", no_args_is_help=False, add_completion=False)
 console = Console()
@@ -142,6 +148,95 @@ def guide():
     from buster.cli.guide import print_guide
 
     print_guide(console)
+
+
+# Hidden local secret manager — only shown if user knows the command name.
+@app.command(name="setec-astronomy", hidden=True)
+def setec_astronomy(
+    init: bool = typer.Option(False, "--init", help="Initialize a vault in ~/.buster/vaults/default"),
+    name: str = typer.Option("default", "--name", help="Vault name"),
+    add: str = typer.Option("", "--add", help="Add a secret entry (name)"),
+    store_password: bool = typer.Option(False, "--store-password", help="Store the vault password in OS keychain")
+):
+    """Hidden: local secret manager (setec-astronomy).
+
+    Prompts for a password and manages an encrypted vault under Buster data.
+    This command is intentionally hidden from help; only users who know the
+    command name will discover it.
+    """
+    paths = get_paths()
+    vaults = Path(paths.home) / "vaults"
+    vault_dir = vaults / name
+
+    if init:
+        pwd = getpass("Set vault password: ")
+        confirm = getpass("Confirm password: ")
+        if pwd != confirm:
+            console.print("[red]Passwords do not match.[/]")
+            raise typer.Exit(1)
+        try:
+            init_vault(vault_dir, pwd)
+            console.print("[green]Vault initialized at[/]", str(vault_dir))
+            try:
+                log_event("cli.vault.init", str(vault_dir), None, True)
+            except Exception:
+                pass
+            if store_password:
+                if keychain_available():
+                    set_vault_password(name, pwd)
+                    console.print("[green]Password stored in OS keychain[/]")
+                else:
+                    console.print("[yellow]Keyring not available; install 'keyring' to enable OS keychain support[/]")
+        except FileExistsError:
+            console.print("[yellow]Vault already exists.[/]")
+        return
+
+    # Open existing
+    # Try keychain first
+    pwd = None
+    if keychain_available():
+        try:
+            kp = get_vault_password(name)
+            if kp:
+                pwd = kp
+                console.print("[dim]Using password from OS keychain[/]")
+        except Exception:
+            pwd = None
+    if not pwd:
+        pwd = getpass("Vault password: ")
+    try:
+        vault = open_vault(vault_dir, pwd)
+    except FileNotFoundError:
+        console.print("[red]No vault found. Initialize with --init[/]")
+        raise typer.Exit(1)
+
+    # ASCII art gag and secret mode activation
+    console.print(Panel("""  .---.  .---.
+ ( (o) ) ( (o) )
+  '---'  '---'
+  SPY vs SPY — SECRET MODE
+""", title="setec-astronomy", subtitle="Enter password to unlock"))
+
+    if add:
+        value = getpass(f"Enter secret value for '{add}': ")
+        vault.add(add, value.encode())
+        console.print(f"[green]Added secret '{add}'[/]")
+        try:
+            log_event("cli.vault.add", str(vault_dir), add, True)
+        except Exception:
+            pass
+        raise typer.Exit()
+
+    # Reveal anagram message when unlocked
+    try:
+        console.print("[green]Unlocked.[/]")
+        console.print("Anagram: 'setec-astronomy' -> 'no more secrets'")
+        try:
+            log_event("cli.vault.open", str(vault_dir), None, True)
+        except Exception:
+            pass
+    except Exception:
+        console.print("[red]Failed to open vault contents.[/]")
 
 
 @app.command()
@@ -693,6 +788,15 @@ def buildly_connect(product_id: str, path: str = typer.Argument(".", help="Repos
 
 labs_app = typer.Typer(help="Buildly Labs (via the bb-agent-manager MCP server)")
 app.add_typer(labs_app, name="labs")
+
+
+@labs_app.callback(invoke_without_command=True)
+def _labs_root(ctx: typer.Context):
+    """Default 'labs' behavior: show status when no subcommand is given."""
+    if ctx.invoked_subcommand is None:
+        # Call the status command to provide a useful default.
+        labs_status()
+        raise typer.Exit()
 
 
 def _mcp():
