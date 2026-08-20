@@ -73,6 +73,9 @@ buster labs connect http://bb-agent.home/sse   # connect Buildly Labs (via MCP)
 buster labs status     # is Labs connected & authenticated?
 buster work <issue>    # build a bounded context package, optionally run an agent
 buster sync            # push approved contracts to Labs (offline-safe)
+buster conflicts       # resolve sync conflicts (keep-local/keep-labs/merge/defer)
+buster pr prepare      # prepare a DRAFT pull request (Buster never merges)
+buster enforce         # progressive enforcement: observe → … → full
 ```
 
 Buster never modifies your application files during a scan, never auto-approves

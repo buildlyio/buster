@@ -711,6 +711,67 @@ async def dev_review(req: ReviewRequest) -> dict:
     return await get_dev_service().review_changes(req.path, req.run_id)
 
 
+# -- dev workflow Phase 4: conflicts · draft PR · enforcement -----------------
+
+class ResolveConflictRequest(BaseModel):
+    path: str
+    event_id: str
+    resolution: str                    # keep_local | keep_labs | merge | defer
+
+
+@router.post("/dev/conflicts/resolve")
+async def dev_resolve_conflict(req: ResolveConflictRequest) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    return await get_dev_service().resolve_conflict(req.path, req.event_id, req.resolution)
+
+
+class DraftPRRequest(BaseModel):
+    path: str
+    run_id: str = ""
+    title: str = ""
+    body: str = ""
+    commit: bool = False
+    push: bool = False
+    open_pr: bool = False
+
+
+@router.post("/dev/pr/plan")
+async def dev_pr_plan(req: DraftPRRequest) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    return await get_dev_service().plan_draft_pr(req.path, req.run_id)
+
+
+@router.post("/dev/pr/prepare")
+async def dev_pr_prepare(req: DraftPRRequest) -> dict:
+    """Prepare a draft PR. NEVER merges (there is no merge path)."""
+    from buster.buildly.devservice_mock import get_dev_service
+
+    return await get_dev_service().prepare_draft_pr(
+        req.path, run_id=req.run_id, title=req.title, body=req.body,
+        commit=req.commit, push=req.push, open_pr=req.open_pr)
+
+
+@router.get("/dev/enforcement")
+async def dev_get_enforcement(path: str) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    return await get_dev_service().get_enforcement(path)
+
+
+class EnforcementRequest(BaseModel):
+    path: str
+    mode: str
+
+
+@router.post("/dev/enforcement")
+async def dev_set_enforcement(req: EnforcementRequest) -> dict:
+    from buster.buildly.devservice_mock import get_dev_service
+
+    return await get_dev_service().set_enforcement(req.path, req.mode)
+
+
 # -- personality / config ------------------------------------------------------
 
 @router.get("/personality")

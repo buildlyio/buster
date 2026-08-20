@@ -67,6 +67,48 @@ class SyncJournal:
     def pending_events(self) -> list[SyncEvent]:
         return self._load_dir(self.pending)
 
+    def conflict_events(self) -> list[SyncEvent]:
+        return self._load_dir(self.conflicts)
+
+    def resolve_conflict(self, event_id: str, resolution: str) -> SyncEvent | None:
+        """Resolve a conflicted event (Phase 4).
+
+        resolution ∈ keep_local | keep_labs | merge | defer. The resolution is
+        recorded as a NEW pending event (never silently overwriting): the
+        original conflict file is annotated + moved out of conflicts/, and a
+        follow-up sync event carries the decision so it can be pushed/audited.
+        """
+        path = self.conflicts / f"{event_id}.json"
+        if not path.exists():
+            return None
+        try:
+            evt = SyncEvent.model_validate_json(path.read_text())
+        except Exception:  # noqa: BLE001
+            return None
+        # Record the decision as a new event (append-only history).
+        decision = self.record("conflict.resolved", {
+            "conflict_event_id": event_id,
+            "conflict_kind": evt.kind,
+            "resolution": resolution,
+            "original_payload": evt.payload,
+        })
+        if resolution == "defer":
+            # Leave the conflict in place; just note that a deferral was recorded.
+            return decision
+        # keep_local → re-queue the original event to push again.
+        if resolution == "keep_local":
+            self.record(evt.kind, evt.payload)
+        # keep_labs → accept Labs' value: nothing to push; mark handled.
+        # merge → the merged payload should be re-recorded by the caller; here
+        # we just clear the conflict. Move the conflict file to applied/ with the
+        # resolution annotation so history is preserved, not deleted.
+        evt.error = f"resolved: {resolution}"
+        applied_dir = self.applied
+        applied_dir.mkdir(parents=True, exist_ok=True)
+        (applied_dir / f"{event_id}.json").write_text(evt.model_dump_json(indent=2))
+        path.unlink(missing_ok=True)
+        return decision
+
     def _move(self, evt: SyncEvent, to: SyncState) -> None:
         src = self.pending / f"{evt.id}.json"
         dst_dir = self._dir(to)

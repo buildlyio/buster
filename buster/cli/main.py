@@ -1204,6 +1204,106 @@ def _print_sync_status(status: dict):
 
 
 # ----------------------------------------------------------------------------
+# Phase 4: conflicts · draft PR · progressive enforcement
+# ----------------------------------------------------------------------------
+
+@app.command()
+def conflicts(
+    path: str = typer.Argument(".", help="Repository path"),
+    resolve: str = typer.Option("", "--resolve", help="Conflict event id to resolve"),
+    how: str = typer.Option("defer", "--how", help="keep_local | keep_labs | merge | defer"),
+):
+    """List sync conflicts, or --resolve one. Never silently overwrites."""
+    repo = _os.path.abspath(_os.path.expanduser(path))
+    svc = _dev_svc()
+    if resolve:
+        res = asyncio.run(svc.resolve_conflict(repo, resolve, how))
+        if res.get("ok"):
+            console.print(f"[green]✓[/] Resolved {resolve} as [bold]{how}[/] "
+                          f"(decision event {res['decision_event']}).")
+        else:
+            console.print(f"[red]{res.get('error')}[/]")
+        return
+    items = asyncio.run(svc.list_conflicts(repo))
+    if not items:
+        console.print("[green]No conflicts.[/]")
+        return
+    table = Table(title="Sync conflicts")
+    table.add_column("ID"); table.add_column("Kind"); table.add_column("Local value")
+    for c in items:
+        table.add_row(c["id"], c["field"], c["local_value"][:50])
+    console.print(table)
+    console.print("[dim]Resolve: buster conflicts --resolve <id> --how keep_local|keep_labs|merge|defer[/]")
+
+
+pr_app = typer.Typer(help="Draft pull-request preparation (never merges)")
+app.add_typer(pr_app, name="pr")
+
+
+@pr_app.command("prepare")
+def pr_prepare(
+    path: str = typer.Argument(".", help="Repository path"),
+    run_id: str = typer.Option("", "--run", help="Agent run id (names the branch)"),
+    title: str = typer.Option("", "--title"),
+    commit: bool = typer.Option(False, "--commit", help="Commit current changes"),
+    push: bool = typer.Option(False, "--push", help="Push the branch"),
+    open_pr: bool = typer.Option(False, "--open", help="Open a DRAFT PR via gh"),
+):
+    """Prepare a draft PR. Requires --commit/--push/--open to act; else a dry-run
+    plan. Buster NEVER merges."""
+    repo = _os.path.abspath(_os.path.expanduser(path))
+    svc = _dev_svc()
+    if not (commit or push or open_pr):
+        plan = asyncio.run(svc.plan_draft_pr(repo, run_id))
+        console.print(Panel(
+            f"Branch: {plan['proposed_branch']} (current: {plan['current_branch'] or '-'})\n"
+            f"Changed files: {len(plan['changed_files'])}\n\n"
+            + "\n".join(f"  • {s}" for s in plan["steps"])
+            + ("\n\n[yellow]" + "; ".join(plan["warnings"]) + "[/]" if plan["warnings"] else ""),
+            title="Draft PR plan (dry run)"))
+        console.print("[dim]Act with: buster pr prepare --commit --push --open[/]")
+        return
+    res = asyncio.run(svc.prepare_draft_pr(repo, run_id=run_id, title=title,
+                                           commit=commit, push=push, open_pr=open_pr))
+    if not res.get("ok"):
+        console.print(f"[red]{res.get('detail')}[/]")
+        return
+    console.print(f"[green]✓[/] Branch {res['branch']} · committed: {res['committed']} · "
+                  f"pushed: {res['pushed']}")
+    if res.get("pr_url"):
+        console.print(f"Draft PR: {res['pr_url']}")
+    if res.get("detail"):
+        console.print(f"[dim]{res['detail']}[/]")
+    console.print("[dim]Buster never merges — review and merge yourself.[/]")
+
+
+@app.command()
+def enforce(
+    path: str = typer.Argument(".", help="Repository path"),
+    mode: str = typer.Option("", "--set", help="observe|record|guide|enforce_new_work|full_enforcement"),
+):
+    """Show or set progressive enforcement for this repo."""
+    repo = _os.path.abspath(_os.path.expanduser(path))
+    svc = _dev_svc()
+    if mode:
+        res = asyncio.run(svc.set_enforcement(repo, mode))
+        if not res.get("ok"):
+            console.print(f"[red]{res.get('error')}[/]")
+            return
+        console.print(f"[green]✓[/] Enforcement set to [bold]{res['mode']}[/] — {res['explanation']}")
+        return
+    cur = asyncio.run(svc.get_enforcement(repo))
+    console.print(f"Current: [bold]{cur['mode']}[/] — {cur['explanation']}\n")
+    table = Table(title="Progressive enforcement levels")
+    table.add_column("Mode"); table.add_column("What it changes")
+    for lvl in cur["levels"]:
+        marker = "→ " if lvl["mode"] == cur["mode"] else "  "
+        table.add_row(marker + lvl["mode"], lvl["explanation"])
+    console.print(table)
+    console.print("[dim]Set with: buster enforce --set <mode>[/]")
+
+
+# ----------------------------------------------------------------------------
 # Developer setup: bb-code + tokenjam (P2.3)
 # ----------------------------------------------------------------------------
 

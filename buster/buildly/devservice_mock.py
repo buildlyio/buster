@@ -268,9 +268,50 @@ class MockBuildlyDevelopmentService:
     async def list_conflicts(self, path: str) -> list[SyncConflict]:
         from buster.buildly.sync import SyncJournal
 
-        events = SyncJournal(path)._load_dir(SyncJournal(path).conflicts)
+        events = SyncJournal(path).conflict_events()
         return [SyncConflict(id=e.id, field=e.kind, local_value=str(e.payload)[:200])
                 for e in events]
+
+    # -- Phase 4: conflict resolution / draft PR / enforcement ---------------
+
+    async def resolve_conflict(self, path: str, event_id: str, resolution: str) -> dict:
+        """Resolve a sync conflict (keep_local | keep_labs | merge | defer).
+
+        Never silently overwrites: records the decision as a new event.
+        """
+        from buster.buildly.sync import SyncJournal
+
+        if resolution not in ("keep_local", "keep_labs", "merge", "defer"):
+            return {"ok": False, "error": f"invalid resolution: {resolution}"}
+        evt = SyncJournal(path).resolve_conflict(event_id, resolution)
+        if evt is None:
+            return {"ok": False, "error": "conflict not found"}
+        return {"ok": True, "resolution": resolution, "decision_event": evt.id}
+
+    async def plan_draft_pr(self, path: str, run_id: str = "") -> dict:
+        from buster.buildly.draftpr import plan_draft_pr
+
+        return plan_draft_pr(path, run_id=run_id).model_dump()
+
+    async def prepare_draft_pr(
+        self, path: str, *, run_id: str = "", title: str = "", body: str = "",
+        commit: bool = False, push: bool = False, open_pr: bool = False,
+    ) -> dict:
+        from buster.buildly.draftpr import prepare_draft_pr
+
+        res = prepare_draft_pr(path, run_id=run_id, title=title, body=body,
+                               commit=commit, push=push, open_pr=open_pr)
+        return res.model_dump()
+
+    async def get_enforcement(self, path: str) -> dict:
+        from buster.buildly.enforcement import get_enforcement
+
+        return get_enforcement(path)
+
+    async def set_enforcement(self, path: str, mode: str) -> dict:
+        from buster.buildly.enforcement import set_enforcement
+
+        return set_enforcement(path, mode)
 
     # -- Phase 2: approve → contract → journal -------------------------------
 
