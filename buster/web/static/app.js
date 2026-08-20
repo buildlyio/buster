@@ -71,6 +71,7 @@ const sections = {
   tools: renderTools,
   prompts: renderPrompts,
   settings: renderSettings,
+  tokens: renderTokens,
 };
 
 async function load(section) {
@@ -440,6 +441,34 @@ async function renderDev(panel) {
   };
 
   if (devRepoPath) doInspect();
+}
+
+// ---- tokens (TokenJam visual) ----
+async function renderTokens(panel) {
+  panel.innerHTML = `<div class="card"><h3>TokenJam</h3><div id="tj">Loading…</div></div>`;
+  try {
+    const data = await api('/dev/tokens');
+    const el = $('#tj');
+    if (!data.available) {
+      el.innerHTML = `<div class="muted">TokenJam not installed. ${esc(data.note || '')}</div>`;
+      return;
+    }
+    if (!data.findings || !data.findings.length) {
+      el.innerHTML = `<div class="muted">No token findings available.</div>`;
+      return;
+    }
+    // Render per-service rows with simple progress bars for estimated usage.
+    el.innerHTML = `<div class="grid">${data.findings.map(f =>
+      `<div class="card" style="padding:8px">` +
+        `<strong>${esc(f.service || 'service')}</strong> <span class="muted">${esc(f.model || '')}</span>` +
+        `<div style="height:8px;background:var(--surface-1);border-radius:4px;margin-top:6px">` +
+          `<div style="height:8px;width:${Math.min(100, Math.round((f.estimated_usage_percent||0)))}%;background:var(--accent);border-radius:4px"></div>` +
+        `</div>` +
+        `<div class="muted" style="margin-top:6px">${esc(f.note || '')}</div>` +
+      `</div>`).join('')}</div>`;
+  } catch (e) {
+    $('#tj').innerHTML = `<div class="crit">Error: ${esc(e.message)}</div>`;
+  }
 }
 
 function renderAdoption(el, r) {

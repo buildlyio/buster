@@ -148,6 +148,7 @@ class AdoptionInventory(BaseModel):
 class AdoptionReport(BaseModel):
     repository: str
     generated_at: str = ""
+    app_type: str = ""
     inventory: AdoptionInventory = Field(default_factory=AdoptionInventory)
     proposed_features: list[FeatureContract] = Field(default_factory=list)
     statements: list[InferredStatement] = Field(default_factory=list)

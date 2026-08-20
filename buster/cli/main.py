@@ -150,6 +150,86 @@ def guide():
     print_guide(console)
 
 
+voice_app = typer.Typer(help="Voice / conversation mode")
+app.add_typer(voice_app, name="voice")
+
+
+@voice_app.callback(invoke_without_command=True)
+def voice_main(ctx: typer.Context):
+    """Open the hands-free voice conversation page in a browser (default)."""
+    if ctx.invoked_subcommand is not None:
+        return
+    import webbrowser
+
+    cfg = load_config()
+    url = f"{cfg.base_url}/voice"
+    if not cfg.voice.enabled:
+        console.print("[yellow]Voice is disabled.[/] Enable it with "
+                      "[bold]buster voice enable[/] first.")
+    webbrowser.open(url)
+    console.print(f"Opening the voice page: {url}")
+    console.print("[dim]Tap the mic to talk; Buster speaks back and announces "
+                  "when agents finish.[/]")
+
+
+@voice_app.command("enable")
+def voice_enable(
+    provider: str = typer.Option("pyttsx3", help="pyttsx3 | say | riva | none"),
+    voice: str = typer.Option("narrator", help="Voice key (see 'buster voice voices')"),
+):
+    """Turn on voice talk-back + agent-done announcements."""
+    from buster.config import load_config, save_config
+
+    cfg = load_config()
+    cfg.voice.enabled = True
+    cfg.voice.provider = provider
+    cfg.voice.voice = voice
+    save_config(cfg)
+    console.print(f"[green]✓[/] Voice enabled ({provider}, voice: {voice}).")
+    from buster.voice import get_speaker
+
+    if not get_speaker().available():
+        console.print("[yellow]Note:[/] that provider isn't available here. "
+                      "On macOS try --provider say; else 'pip install pyttsx3'.")
+
+
+@voice_app.command("disable")
+def voice_disable():
+    """Turn off voice."""
+    from buster.config import load_config, save_config
+
+    cfg = load_config()
+    cfg.voice.enabled = False
+    save_config(cfg)
+    console.print("[green]✓[/] Voice disabled.")
+
+
+@voice_app.command("voices")
+def voice_voices():
+    """List the available voice options (based on the NullRecords catalog)."""
+    from buster.voice import VOICE_CATALOG
+
+    table = Table(title="Voices")
+    table.add_column("Key"); table.add_column("Name"); table.add_column("Tone")
+    table.add_column("Description")
+    for v in VOICE_CATALOG.values():
+        table.add_row(v.key, v.name, v.tone, v.description)
+    console.print(table)
+    console.print("[dim]Set with: buster voice enable --voice <key>[/]")
+
+
+@voice_app.command("test")
+def voice_test(text: str = typer.Argument("Buster voice test. Agent finished.")):
+    """Speak a phrase on this machine to test the voice."""
+    from buster.voice import get_speaker
+
+    r = get_speaker().speak(text, respect_quiet=False)
+    if r.ok:
+        console.print(f"[green]✓[/] Spoke with {r.provider} ({r.voice}).")
+    else:
+        console.print(f"[yellow]Didn't speak:[/] {r.detail}")
+
+
 # Hidden local secret manager — only shown if user knows the command name.
 @app.command(name="setec-astronomy", hidden=True)
 def setec_astronomy(

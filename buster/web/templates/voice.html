@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Buster Voice</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐰</text></svg>">
+  <style>
+    :root { --bg:#0f1216; --fg:#e6e9ee; --muted:#9aa4b2; --accent:#5b8dff;
+            --ok:#1f9d55; --card:#171b21; --border:#2a313b; }
+    @media (prefers-color-scheme: light) { :root { --bg:#f6f7f9; --fg:#1a1d23;
+      --muted:#6b7280; --accent:#2f6df6; --card:#fff; --border:#dfe3ea; } }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; background:var(--bg); color:var(--fg);
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+      display:flex; flex-direction:column; align-items:center; padding:24px; gap:18px; }
+    .rabbit { font-size:56px; line-height:1; margin-top:16px; }
+    h1 { margin:0; font-size:20px; font-weight:700; }
+    .sub { color:var(--muted); font-size:13px; }
+    .mic { width:120px; height:120px; border-radius:50%; border:none; cursor:pointer;
+      background:var(--accent); color:#fff; font-size:15px; font-weight:700;
+      box-shadow:0 6px 24px rgba(0,0,0,.25); transition:transform .1s; }
+    .mic:active { transform:scale(.96); }
+    .mic.listening { background:var(--ok); animation:pulse 1.2s infinite; }
+    @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(31,157,85,.5)}
+      70%{box-shadow:0 0 0 22px rgba(31,157,85,0)} 100%{box-shadow:0 0 0 0 rgba(31,157,85,0)} }
+    .status { min-height:22px; color:var(--muted); font-size:14px; }
+    .log { width:100%; max-width:620px; display:flex; flex-direction:column; gap:10px; }
+    .bubble { padding:12px 14px; border-radius:14px; max-width:88%; white-space:pre-wrap; }
+    .you { align-self:flex-end; background:var(--accent); color:#fff; }
+    .buster { align-self:flex-start; background:var(--card); border:1px solid var(--border); }
+    .meta { font-size:10px; color:var(--muted); margin-top:5px; }
+    .controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap; justify-content:center; }
+    label { font-size:13px; color:var(--muted); display:flex; gap:6px; align-items:center; }
+    select, .toggle { background:var(--card); color:var(--fg); border:1px solid var(--border);
+      border-radius:8px; padding:6px 10px; }
+    .announce { align-self:center; background:rgba(31,157,85,.15); color:var(--ok);
+      border-radius:999px; padding:6px 14px; font-size:13px; font-weight:600; }
+  </style>
+</head>
+<body>
+  <div class="rabbit">🐰</div>
+  <h1>Buster Voice</h1>
+  <div class="sub">Tap to talk · Buster speaks back · announces when agents finish</div>
+
+  <button class="mic" id="mic">🎙 Tap&nbsp;to&nbsp;talk</button>
+  <div class="status" id="status"></div>
+
+  <div class="controls">
+    <label>Voice
+      <select id="voice"></select>
+    </label>
+    <label><input type="checkbox" id="speakReplies" checked> Speak replies</label>
+    <label><input type="checkbox" id="announce" checked> Announce agent-done</label>
+  </div>
+
+  <div class="log" id="log"></div>
+
+  <script>
+    const $ = s => document.querySelector(s);
+    const api = (p, o) => fetch("/api" + p, o).then(r => r.json());
+    const log = $("#log"), statusEl = $("#status");
+
+    // ---- speech synthesis (talk back) ----
+    let voices = [];
+    let webHint = "";           // browser voice name hint from the chosen catalog voice
+    function loadWebVoices() { voices = window.speechSynthesis ? speechSynthesis.getVoices() : []; }
+    if (window.speechSynthesis) { loadWebVoices(); speechSynthesis.onvoiceschanged = loadWebVoices; }
+
+    function speak(text) {
+      if (!$("#speakReplies").checked || !window.speechSynthesis) return;
+      const u = new SpeechSynthesisUtterance(text);
+      if (webHint) {
+        const v = voices.find(v => (v.name || "").toLowerCase().includes(webHint.toLowerCase()));
+        if (v) u.voice = v;
+      }
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+    }
+
+    // Populate the voice picker from Buster's catalog (same options as the CLI).
+    api("/voice").then(cfg => {
+      const sel = $("#voice");
+      (cfg.voices || []).forEach(v => {
+        const o = document.createElement("option");
+        o.value = v.web_hint || v.name; o.textContent = v.name;
+        if (v.key === cfg.voice) { o.selected = true; webHint = v.web_hint || ""; }
+        sel.appendChild(o);
+      });
+      sel.onchange = () => { webHint = sel.value; };
+    }).catch(() => {});
+
+    function bubble(cls, text, meta) {
+      const d = document.createElement("div");
+      d.className = "bubble " + cls;
+      d.textContent = text;
+      if (meta) { const m = document.createElement("div"); m.className = "meta"; m.textContent = meta; d.appendChild(m); }
+      log.appendChild(d); window.scrollTo(0, document.body.scrollHeight);
+      return d;
+    }
+
+    async function ask(text) {
+      bubble("you", text);
+      const thinking = bubble("buster", "…");
+      try {
+        const r = await api("/ask", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: text }) });
+        thinking.textContent = r.content || "(no reply)";
+        const m = document.createElement("div"); m.className = "meta";
+        m.textContent = `${r.model} · ${r.inference_location} · left machine: ${r.external_data_shared ? "yes" : "no"}`;
+        thinking.appendChild(m);
+        speak(r.content || "");
+      } catch (e) { thinking.textContent = "Error: " + e.message; }
+    }
+
+    // ---- speech recognition (listen) ----
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const mic = $("#mic");
+    if (!SR) {
+      statusEl.textContent = "This browser has no speech recognition. Use Chrome/Edge, or the Chat page to type.";
+      mic.disabled = true;
+    } else {
+      const rec = new SR();
+      rec.lang = "en-US"; rec.interimResults = false; rec.maxAlternatives = 1;
+      let listening = false;
+      mic.onclick = () => { listening ? rec.stop() : rec.start(); };
+      rec.onstart = () => { listening = true; mic.classList.add("listening");
+        mic.textContent = "● Listening"; statusEl.textContent = "Listening…"; };
+      rec.onend = () => { listening = false; mic.classList.remove("listening");
+        mic.textContent = "🎙 Tap to talk"; statusEl.textContent = ""; };
+      rec.onerror = e => { statusEl.textContent = "Mic error: " + e.error; };
+      rec.onresult = e => {
+        const text = e.results[0][0].transcript;
+        statusEl.textContent = "";
+        if (text.trim()) ask(text.trim());
+      };
+    }
+
+    // ---- SSE: speak agent-done announcements ----
+    try {
+      const src = new EventSource("/api/events");
+      src.addEventListener("voice.announce", e => {
+        if (!$("#announce").checked) return;
+        let data = {}; try { data = JSON.parse(e.data); } catch (_) {}
+        const text = data.title || "";
+        if (!text) return;
+        const a = document.createElement("div"); a.className = "announce"; a.textContent = "🔔 " + text;
+        log.appendChild(a); window.scrollTo(0, document.body.scrollHeight);
+        speak(text);
+      });
+    } catch (_) {}
+  </script>
+</body>
+</html>

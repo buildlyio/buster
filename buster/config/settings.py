@@ -19,6 +19,8 @@ else:  # pragma: no cover
 
 import tomli_w
 
+from .agent import AgentModeConfig, AgentRuntime
+
 from buster.config.paths import get_paths
 
 InferencePolicy = Literal[
@@ -123,6 +125,25 @@ class PersonalityConfig(BaseModel):
     learning_enabled: bool = False
 
 
+class VoiceConfig(BaseModel):
+    """Voice / conversation mode (talk-back + agent-done announcements)."""
+
+    enabled: bool = False
+    # Speaking backend: pyttsx3 works offline everywhere (default); riva uses a
+    # neural TTS server if reachable; "say" uses the macOS built-in; none = mute.
+    provider: str = "pyttsx3"          # pyttsx3 | riva | say | none
+    voice: str = "narrator"            # key from the VoiceConfig catalog
+    riva_url: str = "wss://localhost:8443"
+    rate: int = 175                    # words per minute (pyttsx3/say)
+    # Which events are spoken aloud when they fire.
+    announce_events: list[str] = Field(default_factory=lambda: [
+        "runtime.task.completed", "research.report_updated", "action.verified",
+        "alert.created",
+    ])
+    # Quiet hours (24h local, "HH:MM-HH:MM"); empty = always allowed.
+    quiet_hours: str = ""
+
+
 class RuntimesConfig(BaseModel):
     """Coexistence with other agent runtimes (Hermes, OpenClaw, ...)."""
 
@@ -143,6 +164,22 @@ class OnboardingConfig(BaseModel):
     completed: bool = False
 
 
+class AgentRuntime(BaseModel):
+    id: str = ""
+    runtime_type: str = "hermes"
+    name: str = ""
+    executable: str = ""
+    argv_template: list[str] = Field(default_factory=list)
+    allowed_task_kinds: list[str] = Field(default_factory=list)
+    api_key_env: str = ""
+
+
+class AgentModeConfig(BaseModel):
+    mode: Literal["single", "split", "delegate"] = "single"
+    specialist_overrides: dict[str, str] = Field(default_factory=dict)
+    runtimes: list[AgentRuntime] = Field(default_factory=list)
+
+
 class BusterConfig(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
@@ -150,9 +187,11 @@ class BusterConfig(BaseModel):
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     buildly: BuildlyConfig = Field(default_factory=BuildlyConfig)
     personality: PersonalityConfig = Field(default_factory=PersonalityConfig)
+    voice: VoiceConfig = Field(default_factory=VoiceConfig)
     runtimes: RuntimesConfig = Field(default_factory=RuntimesConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     onboarding: OnboardingConfig = Field(default_factory=OnboardingConfig)
+    agent: AgentModeConfig = Field(default_factory=AgentModeConfig)
 
     @property
     def base_url(self) -> str:

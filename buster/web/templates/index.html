@@ -20,8 +20,10 @@
       <nav class="nav">
         {% for key, label in sections %}
         <a class="nav-item {% if key == active %}active{% endif %}" href="/ui/{{ key }}"
-           data-section="{{ key }}">{{ label }}</a>
+          data-section="{{ key }}">{{ label }}</a>
         {% endfor %}
+        <a class="nav-item {% if 'tokens' == active %}active{% endif %}" href="/ui/tokens" data-section="tokens">Tokens</a>
+        <a class="nav-item" href="/voice" target="_blank" rel="noopener">🎙 Voice</a>
       </nav>
       <div class="status-badge" id="status-badge">
         <div class="dot" id="status-dot"></div>

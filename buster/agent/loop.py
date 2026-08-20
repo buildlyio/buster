@@ -84,6 +84,66 @@ def _to_ollama_tools(specs: list[ToolSpec]) -> list[dict]:
     return out
 
 
+async def _delegate_subtask(prompt: str, kind: str, config) -> AgentResult | None:
+    """Delegate the task to a configured external runtime iff policy allows.
+
+    Returns None when delegation is not possible or safe, so the caller falls
+    back to the normal local LLM path. In Phase 1 this path is limited to
+    non-external adapters/mock runtimes; real external execution requires
+    explicit approval outside the agent loop.
+    """
+    from buster.runtimes.service import RuntimeSubmissionError, get_runtime_service
+    from buster.runtimes.base import RuntimeTask
+
+    mode = str(getattr(getattr(config, "agent", None), "mode", "single") or "single").strip().lower()
+    if mode != "delegate":
+        return None
+
+    service = get_runtime_service()
+    candidates = []
+    raw_runtimes = getattr(getattr(config, "agent", None), "runtimes", []) or []
+    for rt in raw_runtimes:
+        rid = str(getattr(rt, "id", "") or "").strip()
+        if not rid:
+            continue
+        row = service._row(rid)
+        if not row:
+            continue
+        allowed = [str(x).strip() for x in (row.get("allowed_task_kinds") or []) if str(x).strip()]
+        if kind in allowed:
+            candidates.append(rid)
+
+    if not candidates:
+        return None
+
+    runtime_id = candidates[0]
+    task = RuntimeTask(
+        prompt=prompt,
+        timeout_s=int(getattr(config.inference, "tool_timeout_seconds", 120) or 120),
+    )
+    try:
+        await service.request_submission(runtime_id, task)
+    except RuntimeSubmissionError:
+        return None
+
+    try:
+        run = await service.submit(runtime_id, task)
+    except Exception:  # noqa: BLE001
+        return None
+
+    output = str(run.output or "").strip() or "Subtask completed with no output."
+    return AgentResult(
+        content=output,
+        model=str(run.model or "delegated"),
+        provider=str(runtime_id),
+        inference_location=str(run.inference_location or "external"),
+        external_data_shared=bool(run.external_data_shared),
+        task_id="",
+        steps=1,
+        tools_used=[],
+    )
+
+
 class Agent:
     def __init__(self) -> None:
         self.config = load_config()
@@ -101,6 +161,34 @@ class Agent:
                                 metadata={"kind": kind}))
         store.set_status(task.id, "running")
         await bus.publish(Event(type=EventType.TASK_STARTED, task_id=task.id, title=task.title))
+
+        # Optional specialization/runtime handoff before local loop.
+        delegated = await _delegate_subtask(prompt, kind, self.config)
+        if delegated is not None:
+            store.set_status(task.id, "completed")
+            await bus.publish(Event(type=EventType.TASK_COMPLETED, task_id=task.id,
+                                    metadata={"tools_used": delegated.tools_used, "steps": delegated.steps,
+                                              "delegated": True}))
+            audit(category="runtime", task_id=task.id,
+                  detail={"delegated": True, "runtime_id": delegated.provider},
+                  result="completed", model=delegated.model,
+                  inference_location=delegated.inference_location,
+                  external_data_shared=delegated.external_data_shared)
+            if conversation_id:
+                store.add_message(conversation_id, "user", prompt)
+                store.add_message(conversation_id, "assistant", delegated.content,
+                                  metadata={"model": delegated.model, "location": delegated.inference_location,
+                                            "delegated": True})
+            return AgentResult(
+                content=delegated.content,
+                model=delegated.model,
+                provider=delegated.provider,
+                inference_location=delegated.inference_location,
+                external_data_shared=delegated.external_data_shared,
+                task_id=task.id,
+                steps=delegated.steps,
+                tools_used=delegated.tools_used,
+            )
 
         # Context
         ctx = build_context(prompt)

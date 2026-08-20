@@ -48,6 +48,8 @@ class EventType(str, Enum):
     # streaming chat token deltas (content only, never reasoning)
     MESSAGE_DELTA = "message.delta"
     MESSAGE_COMPLETED = "message.completed"
+    # spoken announcement for the voice/conversation web page
+    VOICE_ANNOUNCE = "voice.announce"
 
 
 def _now() -> str:

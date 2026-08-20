@@ -53,3 +53,9 @@ def mount_web(app: FastAPI) -> None:
         return _TEMPLATES.TemplateResponse(
             request, "index.html", {"sections": _SECTIONS, "active": active}
         )
+
+    @app.get("/voice", response_class=HTMLResponse)
+    async def voice(request: Request):
+        # Full-screen hands-free conversation page (mic + speak-back + agent-done
+        # announcements). Meant to be opened on any device across the room.
+        return _TEMPLATES.TemplateResponse(request, "voice.html", {})

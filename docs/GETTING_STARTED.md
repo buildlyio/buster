@@ -78,7 +78,26 @@ buster sync            # push approved contracts to Labs (offline-safe)
 Buster never modifies your application files during a scan, never auto-approves
 inferred findings, and never auto-merges pull requests.
 
-## 6. Manage the service
+## 6. Voice / conversation mode (optional)
+
+Work from across the room: talk to Buster and have it speak back — and hear a
+spoken announcement when an agent finishes.
+
+```sh
+buster voice enable                 # turn on talk-back (pyttsx3, or macOS 'say')
+buster voice voices                 # list voices (Narrator, Bob, …)
+buster voice enable --voice bob     # pick a voice
+buster voice test "hello"           # hear it
+buster voice                        # open the hands-free page at /voice
+```
+
+Open `http://<host>:<port>/voice` on any device on your network (phone, laptop):
+tap the mic to talk (browser speech recognition), Buster answers out loud, and
+when an agent run / research / action finishes it announces it. Configure which
+events speak and set quiet hours in `[voice]` (see `config.example.toml`).
+Voices are based on the NullRecords audiobook catalog.
+
+## 7. Manage the service
 
 ```sh
 buster status | start | stop | restart | logs

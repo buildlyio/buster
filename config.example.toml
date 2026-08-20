@@ -59,6 +59,15 @@ account_email = ""
 profile = "friendly_guide"              # friendly_guide | quiet_operator | technical_partner | research_companion | household_assistant
 learning_enabled = false
 
+[voice]
+enabled = false                         # talk-back + spoken agent-done announcements
+provider = "pyttsx3"                    # pyttsx3 (offline, default) | say (macOS) | riva | none
+voice = "narrator"                      # narrator | narrator_female | bob | male_young | male_old | female_young | female_older
+rate = 175                              # words per minute
+# Events spoken aloud (and announced on the /voice web page):
+announce_events = ["runtime.task.completed", "research.report_updated", "action.verified", "alert.created"]
+quiet_hours = ""                        # e.g. "22:00-08:00" to stay silent overnight
+
 [runtimes]
 detect = true
 allow_task_submission = false           # submitting tasks to real external runtimes is off by default

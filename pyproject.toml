@@ -1,6 +1,6 @@
 [project]
 name = "buster-assistant"
-version = "0.1.0"
+version = "0.1.1"
 description = "Buster — a lightweight, hardware-adaptive, local-first assistant for research, reporting, diagnostics, and safe action."
 readme = "README.md"
 requires-python = ">=3.11"

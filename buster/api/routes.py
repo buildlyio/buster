@@ -7,6 +7,7 @@ chain-of-thought; events describe activity only.
 from __future__ import annotations
 
 import asyncio
+import time
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -38,6 +39,12 @@ from buster.scheduler import get_alerts
 from buster.tools import get_registry
 
 router = APIRouter()
+
+# Simple in-memory cache for TokenJam results to avoid running `tj optimize`
+# on every request.
+_TJ_CACHE_TTL = 300  # seconds
+_tj_cache_ts: float = 0.0
+_tj_cache_data: dict | None = None
 
 
 # -- health / status ----------------------------------------------------------
@@ -644,8 +651,16 @@ async def dev_tools() -> dict:
 @router.get("/dev/tokens")
 async def dev_tokens() -> dict:
     from buster.dev import tokenjam_summary
-
-    return tokenjam_summary().model_dump()
+    global _tj_cache_ts, _tj_cache_data
+    now = time.time()
+    if _tj_cache_data and (now - _tj_cache_ts) < _TJ_CACHE_TTL:
+        return _tj_cache_data
+    # Freshen cache (may be slow if tj runs); store model_dump to keep JSON-serializable.
+    summary = tokenjam_summary()
+    data = summary.model_dump()
+    _tj_cache_data = data
+    _tj_cache_ts = now
+    return data
 
 
 # -- dev workflow Phase 3: work → context → run → review ----------------------
@@ -723,3 +738,35 @@ async def get_config() -> dict:
 @router.get("/audit")
 async def audit_log(limit: int = 100) -> dict:
     return {"audit": recent_audit(limit)}
+
+
+# -- voice --------------------------------------------------------------------
+
+@router.get("/voice")
+async def voice_status() -> dict:
+    from buster.voice import VOICE_CATALOG, get_speaker
+
+    cfg = load_config().voice
+    return {
+        "enabled": cfg.enabled,
+        "provider": cfg.provider,
+        "voice": cfg.voice,
+        "available": get_speaker().available(),
+        "announce_events": cfg.announce_events,
+        "voices": [v.model_dump() for v in VOICE_CATALOG.values()],
+    }
+
+
+class SpeakRequest(BaseModel):
+    text: str
+
+
+@router.post("/voice/speak")
+async def voice_speak(req: SpeakRequest) -> dict:
+    """Speak text on THIS machine (server-side TTS). Best-effort."""
+    import asyncio
+
+    from buster.voice import get_speaker
+
+    res = await asyncio.to_thread(get_speaker().speak, req.text, False)
+    return res.model_dump()
