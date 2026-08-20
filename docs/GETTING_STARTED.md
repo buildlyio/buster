@@ -97,6 +97,10 @@ when an agent run / research / action finishes it announces it. Configure which
 events speak and set quiet hours in `[voice]` (see `config.example.toml`).
 Voices are based on the NullRecords audiobook catalog.
 
+For higher-quality neural speech, run a PersonaPlex/moshi TTS server and set
+`provider = "riva"` with `riva_url` in `[voice]`; Buster falls back to
+pyttsx3/`say` automatically if the server isn't reachable.
+
 ## 7. Manage the service
 
 ```sh

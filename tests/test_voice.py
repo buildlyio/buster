@@ -113,3 +113,66 @@ async def test_notifier_ignores_its_own_announce(monkeypatch):
     n = VoiceNotifier()
     await n._handle(Event(type=EventType.VOICE_ANNOUNCE, title="loop?"))
     assert not called  # never announces its own announcements
+
+
+# -- neural (Riva/PersonaPlex) ------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_neural_synthesize_none_without_websockets(monkeypatch):
+    """If websockets import fails, synthesize returns None (caller falls back)."""
+    import builtins
+
+    from buster.voice import neural
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *a, **k):
+        if name == "websockets":
+            raise ImportError("no websockets")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    assert await neural.synthesize("hi", "wss://localhost:8443") is None
+
+
+def test_neural_wrap_wav_pcm_and_riff(tmp_path):
+    from buster.voice import neural
+
+    # Raw PCM gets a WAV header.
+    pcm = b"\x00\x01" * 100
+    p = neural._wrap_wav(pcm, 24000)
+    assert p.endswith(".wav")
+    import wave
+
+    with wave.open(p, "rb") as w:
+        assert w.getframerate() == 24000 and w.getnchannels() == 1
+    # Already-RIFF audio is kept as-is.
+    riff = b"RIFF" + b"\x00" * 40
+    p2 = neural._wrap_wav(riff, 24000)
+    from pathlib import Path
+
+    assert Path(p2).read_bytes()[:4] == b"RIFF"
+
+
+@pytest.mark.asyncio
+async def test_riva_provider_falls_back_when_server_down(monkeypatch):
+    _voice(enabled=True, provider="riva")
+    c = load_config()
+    c.voice.riva_url = "wss://localhost:19999"  # nothing there
+    save_config(c)
+
+    from buster.voice import neural
+
+    async def no_audio(*a, **k):
+        return neural.NeuralTTSResult(ok=False, detail="unreachable")
+
+    monkeypatch.setattr(neural, "synthesize_and_play", no_audio)
+    # Force pyttsx3 absent + say present so the fallback path is deterministic.
+    monkeypatch.setattr(spk.Speaker, "_speak_pyttsx3",
+                        lambda self, *a: spk.SpeakResult(ok=False, provider="pyttsx3",
+                                                         detail="not installed"))
+    monkeypatch.setattr(spk.shutil, "which", lambda n: "/usr/bin/say" if n == "say" else None)
+    monkeypatch.setattr(spk.Speaker, "_speak_say",
+                        lambda self, *a: spk.SpeakResult(ok=True, provider="say"))
+    r = spk.get_speaker().speak("neural test", respect_quiet=False)
+    assert r.ok and r.provider == "say" and "neural unavailable" in r.detail

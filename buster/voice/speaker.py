@@ -61,7 +61,10 @@ class Speaker:
         if cfg.provider == "say":
             return shutil.which("say") is not None
         if cfg.provider == "riva":
-            return True  # attempted at speak time
+            # Neural server is opt-in; it falls back to pyttsx3/say at speak
+            # time, so "available" is true as long as SOMETHING can speak.
+            return (_pyttsx3_available() or shutil.which("say") is not None
+                    or _websockets_available())
         return False
 
     def speak(self, text: str, *, respect_quiet: bool = True) -> SpeakResult:
@@ -121,18 +124,58 @@ class Speaker:
             return SpeakResult(ok=False, provider="say", detail=str(exc)[:160])
 
     def _speak_riva(self, text, voice, cfg) -> SpeakResult:
-        # Best-effort: a full Riva/PersonaPlex client is opt-in and heavy. Until
-        # wired, fall back to pyttsx3 so the user still hears something.
-        res = self._speak_pyttsx3(text, voice, cfg.rate)
-        res.detail = ("Riva client not yet wired; used pyttsx3. "
-                      "Set provider=pyttsx3 to silence this note.") if res.ok else res.detail
-        return res
+        """Neural TTS via a PersonaPlex/moshi WebSocket server. Falls back to
+        pyttsx3/say if the server is unreachable or websockets isn't installed."""
+
+        from buster.voice import neural
+
+        persona = f"{voice.name}: {voice.description}".strip(": ")
+        try:
+            result = _run_coro(neural.synthesize_and_play(
+                text, cfg.riva_url, persona=persona))
+        except Exception as exc:  # noqa: BLE001
+            result = neural.NeuralTTSResult(ok=False, detail=str(exc)[:120])
+        if result.ok:
+            return SpeakResult(ok=True, provider="riva", voice=voice.name,
+                               detail=result.detail)
+        # Graceful fallback so the user still hears something.
+        fb = self._speak_pyttsx3(text, voice, cfg.rate)
+        if not fb.ok and shutil.which("say"):
+            fb = self._speak_say(text, voice, cfg.rate)
+        fb.detail = f"neural unavailable ({result.detail}); used {fb.provider}"
+        return fb
+
+
+def _run_coro(coro):
+    """Run an async coroutine from sync code, even inside a running loop."""
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    # Inside a running loop (e.g. called from the notifier's thread): use a
+    # fresh loop in this thread.
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(asyncio.run, coro).result()
 
 
 @lru_cache(maxsize=1)
 def _pyttsx3_available() -> bool:
     try:
         import pyttsx3  # noqa: F401
+
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+@lru_cache(maxsize=1)
+def _websockets_available() -> bool:
+    try:
+        import websockets  # noqa: F401
 
         return True
     except Exception:  # noqa: BLE001

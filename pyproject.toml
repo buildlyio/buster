@@ -26,6 +26,7 @@ dependencies = [
     "selectolax>=0.3.21",
     "pyyaml>=6.0",
     "mcp>=1.0",
+    "websockets>=12.0",
 ]
 
 [project.optional-dependencies]
