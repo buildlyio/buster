@@ -11,7 +11,7 @@ from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
-InferenceLocation = Literal["device", "lan", "remote", "unknown"]
+InferenceLocation = Literal["device", "lan", "remote", "hermes", "unknown"]
 SpeedClass = Literal["fast", "medium", "slow", "unknown"]
 QualityClass = Literal["basic", "good", "strong", "unknown"]
 

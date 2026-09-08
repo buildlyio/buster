@@ -428,12 +428,21 @@ def serve():
 # ----------------------------------------------------------------------------
 
 @app.command()
-def ask(question: str = typer.Argument(..., help="Question for Buster")):
+def ask(
+    question: str = typer.Argument(..., help="Question for Buster"),
+    use_hermes: bool = typer.Option(
+        False, "--use-hermes", "-H",
+        help="Force Hermes (hermes proxy / oneshot) for this request",
+    ),
+):
     """Ask Buster a question (uses local-first inference)."""
     if not _require_service():
         return
+    body: dict = {"prompt": question}
+    if use_hermes:
+        body["use_hermes"] = True
     with console.status("Thinking…"):
-        r = _api("/ask", "POST", {"prompt": question})
+        r = _api("/ask", "POST", body)
     console.print(Markdown(r["content"] or "_(no content)_"))
     console.print(f"[dim]{r['model']} · {r['inference_location']} · "
                   f"data left machine: {'yes' if r['external_data_shared'] else 'no'}"

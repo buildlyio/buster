@@ -20,6 +20,12 @@ default_model = ""                      # e.g. "gemma3:latest"; blank = auto-pic
 ollama_url = "http://127.0.0.1:11434"
 lan_ollama_urls = []                    # e.g. ["http://alderaan.home:11434"]
 lmstudio_urls = []                      # OpenAI-compatible, incl. /v1 — e.g. ["http://127.0.0.1:1234/v1"]
+# Hermes provider — optional. Set hermes_url to the local ``hermes proxy``
+# endpoint (default port 8100) to route prompts through Hermes's connected
+# model. Set use_hermes_model = true to force Hermes for every request.
+# hermes_url = "http://127.0.0.1:8100/v1"
+# hermes_model = ""
+# use_hermes_model = false
 max_steps = 8
 tool_timeout_seconds = 30
 

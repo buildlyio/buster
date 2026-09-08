@@ -39,6 +39,9 @@ class EventType(str, Enum):
     SERVICE_DISCOVERED = "service.discovered"
     NODE_DISCOVERED = "node.discovered"
     RUNTIME_DISCOVERED = "runtime.discovered"
+    # thinking / transparency events (Hermes-style visibility into the agent's work)
+    THINKING = "thinking"
+    THOUGHT_STEP = "thought.step"
     # delegated runtime task lifecycle (normalized from external runtimes)
     RUNTIME_TASK_STARTED = "runtime.task.started"
     RUNTIME_TASK_PROGRESS = "runtime.task.progress"

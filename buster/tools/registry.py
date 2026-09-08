@@ -29,6 +29,8 @@ _BUILTIN_PACKS = [
     "buster.tools.packs.tasks",
     "buster.tools.packs.discovery",
     "buster.tools.packs.buildly_workspace",
+    "buster.tools.packs.terminal",
+    "buster.tools.packs.coding",
 ]
 
 

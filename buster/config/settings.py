@@ -82,6 +82,16 @@ class InferenceConfig(BaseModel):
     lmstudio_urls: list[str] = Field(default_factory=list)
     # Gated remote provider (off by default; sends data off-network when used).
     remote: RemoteProviderConfig = Field(default_factory=RemoteProviderConfig)
+    # Hermes provider (optional). When ``hermes_url`` is set and reachable,
+    # Buster can route prompts through the locally-running Hermes proxy
+    # (``hermes proxy``) instead of Ollama/LM Studio. Falls back to a
+    # ``hermes chat -q ... -z`` oneshot when the proxy isn't running.
+    # Set ``use_hermes_model`` to force Hermes for every request; otherwise
+    # Hermes is one tier in the normal local-first routing order (after local
+    # Ollama/LM Studio, before LAN/remote).
+    hermes_url: str = ""
+    hermes_model: str = ""
+    use_hermes_model: bool = False
     # Max agent loop steps.
     max_steps: int = 8
     tool_timeout_seconds: int = 30

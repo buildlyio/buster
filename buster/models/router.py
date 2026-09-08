@@ -19,6 +19,7 @@ from dataclasses import dataclass
 
 from buster.config.settings import BusterConfig
 from buster.models.disabled import DisabledProvider
+from buster.models.hermes import HermèsProvider
 from buster.models.lmstudio import OpenAICompatibleProvider
 from buster.models.ollama import OllamaProvider
 from buster.models.provider import InferenceLocation, ModelInfo, ModelProvider
@@ -72,6 +73,18 @@ class ModelRouter:
                     api_key=inf.remote.api_key, name=inf.remote.name or "remote",
                 )
 
+        # Hermes provider (optional, local-first tier). When configured and
+        # reachable it sits between local Ollama/LM Studio and LAN providers
+        # in the routing order — unless ``use_hermes_model`` is set, in which
+        # case it is preferred over everything else.
+        self._hermes: HermèsProvider | None = None
+        if inf.hermes_url or inf.use_hermes_model:
+            self._hermes = HermèsProvider(
+                base_url=inf.hermes_url or "http://127.0.0.1:8100/v1",
+                location="device",
+                default_model=inf.hermes_model,
+            )
+
     async def local_provider(self) -> OllamaProvider:
         return self._local
 
@@ -88,7 +101,10 @@ class ModelRouter:
                 return [ModelInfo.model_validate(m) for m in hit]
 
         models: list[ModelInfo] = []
-        for prov in [*self._device, *self._lan]:
+        providers = list(self._device) + list(self._lan)
+        if self._hermes is not None:
+            providers.append(self._hermes)
+        for prov in providers:
             try:
                 models += await prov.list_models()
             except Exception:  # noqa: BLE001
@@ -124,8 +140,11 @@ class ModelRouter:
         # the LAN). Device is still preferred when it HAS the wanted model.
         wanted = model or self.config.inference.default_model
         if wanted:
-            for prov, loc in ([(p, "device") for p in self._device]
-                              + [(p, "lan") for p in self._lan]):
+            for prov, loc in (
+                [(p, "device") for p in self._device]
+                + [(p, "lan") for p in self._lan]
+                + ([(self._hermes, "hermes")] if self._hermes else [])
+            ):
                 if loc == "lan" and policy not in (
                     "local_first_auto_lan", "no_restriction", "local_first_ask_external"
                 ):
@@ -140,6 +159,20 @@ class ModelRouter:
                 except Exception:  # noqa: BLE001
                     continue
 
+        # 0b: forced Hermes mode — when ``use_hermes_model`` is set, Hermes wins
+        # over local Ollama/LM Studio (the user wants Hermes's connected model
+        # even when a local model exists).
+        if self._hermes is not None and self.config.inference.use_hermes_model:
+            if (await self._hermes.health()).reachable:
+                hermes_models = await self._hermes.list_models()
+                chosen = model if model and _has(hermes_models, model) else self._pick_default(hermes_models)
+                if chosen:
+                    return RouteDecision(
+                        provider=self._hermes, model=chosen, location="hermes",
+                        external_data_shared=False,
+                        reason=f"Hermes forced via config (use_hermes_model); using {chosen}.",
+                    )
+
         # 1 & 2: current device (local Ollama, then local LM Studio).
         for prov in self._device:
             if not (await prov.health()).reachable:
@@ -151,6 +184,21 @@ class ModelRouter:
                     provider=prov, model=chosen, location="device", external_data_shared=False,
                     reason=f"Suitable model on this device ({prov.name}).",
                 )
+
+        # 1b: Hermes proxy (when configured) — after local Ollama/LM Studio,
+        # before LAN. Only used when policy allows it (same as LAN tier).
+        if self._hermes is not None and policy in (
+            "local_first_ask_external", "local_first_auto_lan", "no_restriction",
+        ):
+            if (await self._hermes.health()).reachable:
+                hermes_models = await self._hermes.list_models()
+                chosen = model if model and _has(hermes_models, model) else self._pick_default(hermes_models)
+                if chosen:
+                    return RouteDecision(
+                        provider=self._hermes, model=chosen, location="hermes",
+                        external_data_shared=False,
+                        reason=f"No local model; using Hermes ({self._hermes.name}) — data stays local.",
+                    )
 
         # 3: trusted LAN model (only if allowed by policy).
         if policy in ("local_first_auto_lan", "no_restriction", "local_first_ask_external"):

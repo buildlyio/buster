@@ -24,6 +24,7 @@ from buster.models.router import ModelRouter
 from buster.permissions import RiskLevel, audit
 from buster.tools import get_registry
 from buster.tools.spec import ToolSpec
+from pydantic import Field
 
 
 class AgentResult(BaseModel):
@@ -35,6 +36,7 @@ class AgentResult(BaseModel):
     task_id: str
     steps: int
     tools_used: list[str] = []
+    trace: list[dict] = Field(default_factory=list)
 
 
 def _classify(text: str) -> str:
@@ -195,11 +197,21 @@ class Agent:
         await bus.publish(Event(type=EventType.CONTEXT_LOADED, task_id=task.id,
                                 metadata={"categories": ctx.categories_loaded,
                                           "tokens": ctx.token_estimate}))
+        trace.append({"step": "context", "categories": ctx.categories_loaded, "tokens": ctx.token_estimate})
+        await bus.publish(Event(type=EventType.THOUGHT_STEP, task_id=task.id,
+                                title="Context built",
+                                metadata={"categories": ctx.categories_loaded, "tokens": ctx.token_estimate}))
 
         # Model
         decision = await self.router.route(estimated_tokens=ctx.token_estimate)
         await bus.publish(Event(type=EventType.MODEL_SELECTED, task_id=task.id,
                                 title=f"{decision.provider.name}:{decision.model}",
+                                metadata={"provider": decision.provider.name, "model": decision.model,
+                                          "location": decision.location, "reason": decision.reason}))
+        trace.append({"step": "model", "provider": decision.provider.name, "model": decision.model,
+                      "location": decision.location, "reason": decision.reason})
+        await bus.publish(Event(type=EventType.THOUGHT_STEP, task_id=task.id,
+                                title="Model selected",
                                 metadata={"provider": decision.provider.name, "model": decision.model,
                                           "location": decision.location, "reason": decision.reason}))
 
