@@ -87,6 +87,9 @@ class PatchFileResult(BaseModel):
     path: str
     patched: bool
     exists: bool
+    # When a patch fails because old_string wasn't found, a short preview of
+    # the current file content is returned so the caller can retry accurately.
+    text_preview: str | None = None
     untrusted: bool = True
 
 

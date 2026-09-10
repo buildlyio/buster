@@ -164,6 +164,9 @@ class Agent:
         store.set_status(task.id, "running")
         await bus.publish(Event(type=EventType.TASK_STARTED, task_id=task.id, title=task.title))
 
+        # Reasoning trace (surfaced via THOUGHT_STEP events and AgentResult.trace).
+        trace: list[dict] = []
+
         # Optional specialization/runtime handoff before local loop.
         delegated = await _delegate_subtask(prompt, kind, self.config)
         if delegated is not None:
@@ -289,5 +292,5 @@ class Agent:
         return AgentResult(
             content=final_content, model=decision.model, provider=decision.provider.name,
             inference_location=decision.location, external_data_shared=decision.external_data_shared,
-            task_id=task.id, steps=steps, tools_used=tools_used,
+            task_id=task.id, steps=steps, tools_used=tools_used, trace=trace,
         )
