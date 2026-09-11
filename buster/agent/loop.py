@@ -47,16 +47,33 @@ def _classify(text: str) -> str:
         return "diagnostic"
     if any(w in low for w in ("network", "dns", "ping", "gateway", "ollama")):
         return "diagnostic"
+    if any(
+        w in low
+        for w in (
+            "code", "repo", "repository", "git", "commit", "diff", "branch",
+            "build", "test", "lint", "compile", "refactor", "bug", "function",
+            "file", "grep", "patch",
+        )
+    ):
+        return "coding"
     return "chat"
 
 
 def _tools_for_task(kind: str, platform: str, registry) -> list[ToolSpec]:
-    """Select a limited, relevant subset of tools (read-only auto-run in Phase 1)."""
+    """Select a limited, relevant subset of tools (read-only auto-run in Phase 1).
+
+    The risk_level <= SAFE_BUSTER filter means only read-only tools are ever
+    auto-selected here; the risk-2 members of the terminal/coding packs
+    (terminal.run, terminal.patch_file, coding.run, coding.patch) stay filtered
+    out and remain gated behind explicit confirmation in the run loop.
+    """
     all_tools = [t for t in registry.for_platform(platform) if t.risk_level <= RiskLevel.SAFE_BUSTER]
     if kind == "research":
         packs = {"web_research", "report_builder", "memory", "core"}
     elif kind == "diagnostic":
         packs = {"system_diagnostics", "network_diagnostics", "core"}
+    elif kind == "coding":
+        packs = {"coding", "terminal", "files", "memory", "core"}
     else:
         packs = {"memory", "core", "system_diagnostics"}
     return [t for t in all_tools if t.pack in packs]
