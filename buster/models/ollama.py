@@ -102,7 +102,7 @@ class OllamaProvider:
             "model": request.model,
             "messages": [m.model_dump() for m in request.messages],
             "stream": False,
-            "options": {"temperature": request.temperature},
+            "options": _options(request),
         }
         if request.tools:
             payload["tools"] = request.tools
@@ -140,7 +140,7 @@ class OllamaProvider:
             "model": request.model,
             "messages": [m.model_dump() for m in request.messages],
             "stream": True,
-            "options": {"temperature": request.temperature},
+            "options": _options(request),
         }
         async with self._client() as c:
             async with c.stream("POST", "/api/chat", json=payload) as r:
@@ -166,6 +166,13 @@ class OllamaProvider:
                 r.raise_for_status()
                 out.append(r.json().get("embedding", []))
         return out
+
+
+def _options(request: ChatRequest) -> dict:
+    opts: dict = {"temperature": request.temperature}
+    if request.num_ctx:
+        opts["num_ctx"] = request.num_ctx
+    return opts
 
 
 def _context_from_details(details: dict) -> int | None:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import typing
 from collections.abc import Awaitable, Callable
 from functools import lru_cache
 from typing import Any
@@ -89,16 +90,26 @@ class ToolRegistry:
         spec = self._tools.get(tool_id)
         if spec is None or spec.func is None:
             raise KeyError(f"Unknown tool: {tool_id}")
-        # Validate arguments against the typed input model.
+        # Validate arguments against the typed input model. Tools declared as
+        # ``async def f(args: Model)`` receive the validated model itself;
+        # tools without an input model receive the raw arguments as kwargs.
         if spec.input_model is not None:
-            parsed = spec.input_model.model_validate(arguments)
-            kwargs = parsed.model_dump()
-        else:
-            kwargs = arguments
-        return await spec.func(**kwargs)
+            parsed = spec.input_model.model_validate(arguments or {})
+            return await spec.func(parsed)
+        return await spec.func(**(arguments or {}))
 
 
 _PENDING: list[ToolSpec] = []
+
+
+def _pydantic_model(ann: Any) -> type[BaseModel] | None:
+    """Return the Pydantic model in an annotation (``M`` or ``M | None``), else None."""
+    if isinstance(ann, type) and issubclass(ann, BaseModel):
+        return ann
+    args = [a for a in typing.get_args(ann) if a is not type(None)]
+    if len(args) == 1 and isinstance(args[0], type) and issubclass(args[0], BaseModel):
+        return args[0]
+    return None
 
 
 def tool(
@@ -124,15 +135,20 @@ def tool(
     """
 
     def decorator(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
-        sig = inspect.signature(func)
+        # eval_str resolves string annotations (modules using
+        # ``from __future__ import annotations``); without it every such tool
+        # silently lost its input model.
+        try:
+            sig = inspect.signature(func, eval_str=True)
+        except Exception:  # noqa: BLE001 - unresolvable forward ref; fall back
+            sig = inspect.signature(func)
         input_model = None
         for p in sig.parameters.values():
-            ann = p.annotation
-            if isinstance(ann, type) and issubclass(ann, BaseModel):
-                input_model = ann
+            model = _pydantic_model(p.annotation)
+            if model is not None:
+                input_model = model
                 break
-        ret = sig.return_annotation
-        output_model = ret if isinstance(ret, type) and issubclass(ret, BaseModel) else None
+        output_model = _pydantic_model(sig.return_annotation)
 
         spec = ToolSpec(
             id=id,

@@ -92,7 +92,7 @@ def restart():
     """Restart the Buster background service."""
     svc.stop()
     ok, msg = svc.start()
-    console.print(f"[green]✓[/] {msg}")
+    console.print(f"[green]✓[/] {msg}" if ok else f"[red]✕[/] Couldn't restart: {msg}")
 
 
 @app.command()

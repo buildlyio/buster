@@ -42,7 +42,8 @@ def start() -> tuple[bool, str]:
     if read_pid():
         return True, "Buster is already running."
     paths = get_paths()
-    log = (paths.logs_dir / "buster.log").open("a")
+    log_path = paths.logs_dir / "buster.log"
+    log = log_path.open("a")
     proc = subprocess.Popen(
         [sys.executable, "-m", "buster.main", "serve"],
         stdout=log, stderr=log, start_new_session=True,
@@ -51,12 +52,26 @@ def start() -> tuple[bool, str]:
     # Wait briefly for the API to come up.
     config = load_config()
     for _ in range(30):
+        if proc.poll() is not None:
+            break  # the server process already exited — no point waiting out the loop
         try:
             httpx.get(f"{config.base_url}/api/health", timeout=1.0)
             return True, "Buster started."
         except Exception:  # noqa: BLE001
             time.sleep(0.3)
-    return True, "Buster starting (API not yet responding)."
+    paths.pid_file.unlink(missing_ok=True)
+    return False, _diagnose_failed_start(log_path, config)
+
+
+def _diagnose_failed_start(log_path: Path, config) -> str:
+    tail = log_path.read_text(errors="replace")[-2000:] if log_path.exists() else ""
+    if "address already in use" in tail:
+        return (
+            f"port {config.server.port} is already in use by another process. "
+            f"Find it with `lsof -i :{config.server.port}` and stop it, or change "
+            "\\[server].port in your config.toml."
+        )
+    return "the API never came up — see 'buster logs' for the server's error output."
 
 
 def stop() -> tuple[bool, str]:

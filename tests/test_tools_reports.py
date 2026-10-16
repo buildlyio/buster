@@ -35,6 +35,15 @@ async def test_tool_invoke_ok():
     assert res.iso
 
 
+@pytest.mark.asyncio
+async def test_tool_invoke_passes_validated_model_to_tools_with_args():
+    # Regression: tools declared as ``f(args: Model)`` used to be called with
+    # **kwargs and failed with "unexpected keyword argument".
+    reg = get_registry()
+    res = await reg.invoke("memory.search", {"query": "anything"})
+    assert isinstance(res.hits, list)
+
+
 def test_report_markdown_labels_findings():
     r = Report(
         id="r1", title="T", slug=slugify("T"),

@@ -6,6 +6,8 @@ rendering, slash commands, and a clear inference-location display.
 
 from __future__ import annotations
 
+import socket
+
 import httpx
 from rich.console import Console
 from rich.markdown import Markdown
@@ -109,14 +111,43 @@ def _notify_update(console: Console) -> None:
         pass
 
 
+def _ensure_service(console: Console, config) -> bool:
+    """Make sure the Buster service is reachable, self-diagnosing and
+    auto-starting it if it isn't. Returns True once the API is reachable."""
+    if svc.status()["api_reachable"]:
+        return True
+
+    try:
+        with socket.create_connection((config.server.host, config.server.port), timeout=1.0):
+            port_taken = True
+    except OSError:
+        port_taken = False
+
+    if port_taken:
+        console.print(
+            f"[red]Port {config.server.port} is already in use by another process[/] "
+            "(it isn't answering as Buster's API). "
+            f"Find it with [bold]lsof -i :{config.server.port}[/] and stop it, or change "
+            "[bold]\\[server].port[/] in your config.toml, then run [bold]buster start[/]."
+        )
+        return False
+
+    console.print("[yellow]Buster service isn't running.[/] Starting it…")
+    ok, msg = svc.start()
+    if svc.status()["api_reachable"]:
+        console.print("[green]✓[/] Buster started.\n")
+        return True
+    console.print(f"[red]Couldn't start the service automatically:[/] {msg}")
+    console.print("[dim]Run 'buster logs' or 'buster doctor' for more detail.[/]\n")
+    return False
+
+
 def run_interactive(console: Console) -> None:
-    if not svc.status()["api_reachable"]:
-        console.print("[yellow]Service not running.[/] Start it with [bold]buster start[/] for full features.")
-        console.print("[dim]Offline commands like /doctor, /system, /network still work.[/]\n")
+    config = load_config()
+    _ensure_service(console, config)
 
     _banner(console)
     _notify_update(console)
-    config = load_config()
 
     # First-run: offer provider onboarding if it hasn't been completed and no
     # model is configured yet.
@@ -145,10 +176,16 @@ def run_interactive(console: Console) -> None:
 
 
 def _ask(console: Console, config, prompt: str) -> None:
+    if not _ensure_service(console, config):
+        return
     try:
         with console.status("[dim]Buster is working…[/]"):
             with httpx.Client(timeout=180.0) as c:
                 r = c.post(f"{config.base_url}/api/ask", json={"prompt": prompt}).json()
+    except httpx.ConnectError:
+        console.print(f"[red]Lost the connection to the Buster service[/] at {config.base_url}. "
+                      "[dim]Run 'buster doctor' for a diagnosis.[/]")
+        return
     except Exception as exc:  # noqa: BLE001
         console.print(f"[red]Error:[/] {exc}")
         return
@@ -188,11 +225,16 @@ def _handle_slash(console: Console, line: str, config) -> bool:
         from buster.diagnostics.network import run_network_check
         _checks(console, [c.model_dump() for c in asyncio.run(run_network_check())])
     elif cmd == "research" and arg:
+        if not _ensure_service(console, config):
+            return False
         try:
             with console.status("Researching…"):
                 with httpx.Client(timeout=180.0) as c:
                     r = c.post(f"{config.base_url}/api/research", json={"question": arg}).json()
             console.print(f"[green]✓[/] {r['title']} — {r['sources']} source(s) — id {r['report_id']}")
+        except httpx.ConnectError:
+            console.print(f"[red]Lost the connection to the Buster service[/] at {config.base_url}. "
+                          "[dim]Run 'buster doctor' for a diagnosis.[/]")
         except Exception as exc:  # noqa: BLE001
             console.print(f"[red]Error:[/] {exc}")
     elif cmd == "reports":
@@ -220,9 +262,15 @@ def _checks(console: Console, checks: list[dict]) -> None:
 
 
 def _remote_table(console: Console, config, path: str, key: str, cols: list[str]) -> None:
+    if not _ensure_service(console, config):
+        return
     try:
         with httpx.Client(timeout=10.0) as c:
             data = c.get(f"{config.base_url}/api{path}").json()
+    except httpx.ConnectError:
+        console.print(f"[red]Lost the connection to the Buster service[/] at {config.base_url}. "
+                      "[dim]Run 'buster doctor' for a diagnosis.[/]")
+        return
     except Exception as exc:  # noqa: BLE001
         console.print(f"[red]Error:[/] {exc}")
         return

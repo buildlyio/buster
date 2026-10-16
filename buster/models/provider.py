@@ -56,6 +56,9 @@ class ChatRequest(BaseModel):
     temperature: float = 0.7
     max_tokens: int | None = None
     tools: list[dict] | None = None
+    # Context window to request (Ollama ``num_ctx``). None = the server's default,
+    # which is often only 4096 — too small once tool results come back.
+    num_ctx: int | None = None
 
 
 class ToolCall(BaseModel):
